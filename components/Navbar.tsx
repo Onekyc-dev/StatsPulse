@@ -25,7 +25,7 @@ export default function Navbar() {
           onClick={() => setMenuOpen(false)}
         >
           <img
-            src="/images/logo/logo-mark.png"
+            src="/images/logo-mark.png"
             alt="StatPulse"
             className="h-11 w-11 object-contain"
           />
