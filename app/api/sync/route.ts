@@ -48,34 +48,68 @@ async function ingest(events: BsdEvent[]): Promise<number> {
   return fixtures.size;
 }
 
+type PlayerOut = { id: number; name: string; status?: string; reason?: string };
 type LineupResp = {
   lineup_status?: string;
   lineups?: unknown;
   unavailable_players?: { home?: PlayerOut[]; away?: PlayerOut[] } | null;
 };
-type PlayerOut = { id: number; name: string; status?: string; reason?: string };
+type Fetched = { id: number; lu: LineupResp | null; pr: object | null };
 
-/** Lineups and absences for one match, plus the provider's prediction as a second opinion. */
-async function enrich(id: number, withPrediction: boolean): Promise<void> {
+/**
+ * Lineups, absences and (optionally) the provider's prediction for many matches.
+ * Reads run in parallel, writes are batched into a few requests, and the work stops at the deadline
+ * so the function never times out. Anything skipped is picked up on the next run.
+ */
+async function enrichBatch(ids: number[], withPrediction: boolean, deadline: number, log: string[], label: string): Promise<void> {
+  const fetched: Fetched[] = [];
+  let skipped = 0;
+  let failed = 0;
+
+  await pool(ids, 6, async (id) => {
+    if (Date.now() > deadline) {
+      skipped++;
+      return;
+    }
+    try {
+      const [lu, pr] = await Promise.all([
+        bsd<LineupResp>(`/events/${id}/lineups/`),
+        withPrediction ? bsd<object>(`/events/${id}/prediction/`) : Promise.resolve(null)
+      ]);
+      fetched.push({ id, lu, pr });
+    } catch {
+      failed++;
+    }
+  });
+
   const now = isoNow();
-  const lu = await bsd<LineupResp>(`/events/${id}/lineups/`);
-  if (lu) {
-    await dbUpsert("lineups", [{ fixture_id: id, lineup_status: lu.lineup_status ?? "unavailable", raw: lu.lineups ?? null, updated_at: now }], "fixture_id");
-    const un = lu.unavailable_players;
-    if (un) {
-      const rows = (["home", "away"] as const).flatMap((side) =>
+  const lineupRows = fetched.flatMap((f) =>
+    f.lu ? [{ fixture_id: f.id, lineup_status: f.lu.lineup_status ?? "unavailable", raw: f.lu.lineups ?? null, updated_at: now }] : []
+  );
+  if (lineupRows.length > 0) await dbUpsert("lineups", lineupRows, "fixture_id");
+
+  const withAbsences = fetched.filter((f) => f.lu && f.lu.unavailable_players);
+  if (withAbsences.length > 0) {
+    await dbDelete("absences", { fixture_id: `in.(${withAbsences.map((f) => f.id).join(",")})` });
+    const absenceRows = withAbsences.flatMap((f) => {
+      const un = f.lu?.unavailable_players;
+      if (!un) return [];
+      return (["home", "away"] as const).flatMap((side) =>
         (un[side] ?? []).map((p) => ({
-          fixture_id: id, side, player_id: p.id, player_name: p.name, status: p.status ?? null, reason: p.reason ?? null, updated_at: now
+          fixture_id: f.id, side, player_id: p.id, player_name: p.name, status: p.status ?? null, reason: p.reason ?? null, updated_at: now
         }))
       );
-      await dbDelete("absences", { fixture_id: `eq.${id}` });
-      if (rows.length > 0) await dbUpsert("absences", rows, "fixture_id,side,player_id");
-    }
+    });
+    if (absenceRows.length > 0) await dbUpsert("absences", absenceRows, "fixture_id,side,player_id");
   }
-  if (withPrediction) {
-    const pr = await bsd<object>(`/events/${id}/prediction/`);
-    if (pr) await dbUpsert("provider_predictions", [{ fixture_id: id, raw: pr, fetched_at: now }], "fixture_id");
-  }
+
+  const predRows = fetched.flatMap((f) => (f.pr ? [{ fixture_id: f.id, raw: f.pr, fetched_at: now }] : []));
+  if (predRows.length > 0) await dbUpsert("provider_predictions", predRows, "fixture_id");
+
+  let msg = `${label}: ${fetched.length} of ${ids.length} matches refreshed`;
+  if (skipped > 0) msg += `, ${skipped} skipped to stay within the time limit (run the link again to continue)`;
+  if (failed > 0) msg += `, ${failed} failed`;
+  log.push(msg);
 }
 
 type FxRow = { id: number; home_team_id: number; away_team_id: number; home_score: number | null; away_score: number | null; kickoff: string };
@@ -141,6 +175,8 @@ export async function GET(req: Request) {
   const mode = url.searchParams.get("mode") ?? "daily";
   const log: string[] = [];
   const now = new Date();
+  const started = Date.now();
+  const deadline = started + 40000; // stop starting new work after 40 seconds
   const base = `/events/?league_id=${LEAGUE_ID}`;
 
   try {
@@ -157,24 +193,27 @@ export async function GET(req: Request) {
       });
       const have = await dbSelect<{ fixture_id: number }>("lineups", { select: "fixture_id", limit: "1000" });
       const haveSet = new Set(have.map((h) => h.fixture_id));
-      const todo = finished.filter((f) => !haveSet.has(f.id)).slice(0, 30);
-      await pool(todo, 4, (f) => enrich(f.id, false));
-      log.push(`lineups collected for ${todo.length} finished matches (${finished.length - haveSet.size - todo.length} still to do)`);
+      const todo = finished.filter((f) => !haveSet.has(f.id)).slice(0, 40);
+      await enrichBatch(todo.map((f) => f.id), false, deadline, log, "lineups of finished matches");
+      log.push(`about ${Math.max(0, finished.length - haveSet.size - todo.length)} finished matches still to collect`);
     } else {
       const recent = await bsdList<BsdEvent>(`${base}&status=finished&date_from=${ymd(new Date(now.getTime() - 10 * DAY))}`);
       const live = await bsdList<BsdEvent>(`${base}&status=live`);
       const upcoming = await bsdList<BsdEvent>(`${base}&status=upcoming&date_from=${ymd(now)}&date_to=${ymd(new Date(now.getTime() + 21 * DAY))}`);
       log.push(`saved ${await ingest([...recent, ...live, ...upcoming])} matches (${recent.length} recent, ${live.length} live, ${upcoming.length} upcoming)`);
 
-      const soon = upcoming.filter((e) => new Date(e.event_date).getTime() < now.getTime() + 14 * DAY);
-      await pool([...live, ...soon], 4, (e) => enrich(e.id, true));
+      const soon = upcoming
+        .filter((e) => new Date(e.event_date).getTime() < now.getTime() + 14 * DAY)
+        .sort((a, b) => a.event_date.localeCompare(b.event_date));
+      await enrichBatch([...live, ...soon].map((e) => e.id), true, deadline, log, "upcoming and live matches");
       const justPlayed = recent.filter((e) => new Date(e.event_date).getTime() > now.getTime() - 3 * DAY);
-      await pool(justPlayed, 4, (e) => enrich(e.id, false));
-      log.push(`lineups and absences refreshed for ${live.length + soon.length + justPlayed.length} matches`);
+      await enrichBatch(justPlayed.map((e) => e.id), false, deadline, log, "just-played matches");
       await refreshPredictions(log);
     }
+    log.push(`finished in ${Math.round((Date.now() - started) / 1000)} seconds`);
     return Response.json({ ok: true, mode, log });
   } catch (e) {
+    log.push(`stopped after ${Math.round((Date.now() - started) / 1000)} seconds`);
     return Response.json({ ok: false, mode, log, error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
 }
