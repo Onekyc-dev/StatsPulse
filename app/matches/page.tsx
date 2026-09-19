@@ -1,15 +1,18 @@
 import type { Metadata } from "next";
+import { DataNotice } from "@/components/DataNotice";
 import { MatchesBrowser } from "@/components/MatchesBrowser";
-import { matches } from "@/data/matches";
+import { loadMatches } from "@/lib/db";
 
 export const metadata: Metadata = { title: "Matches" };
+export const revalidate = 60;
 
-export default function MatchesPage() {
+export default async function MatchesPage() {
+  const { matches, error } = await loadMatches(4, 14);
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
       <h1 className="font-display text-3xl font-extrabold tracking-tight">Matches</h1>
-      <p className="mt-1 mb-6 text-sm text-white/55">Premier League fixtures with the model&apos;s outlook for each.</p>
-      <MatchesBrowser matches={matches} />
+      <p className="mb-6 mt-1 text-sm text-white/55">Premier League fixtures and results, with the model&apos;s outlook. Times are UK time.</p>
+      {matches.length === 0 ? <DataNotice error={error} /> : <MatchesBrowser matches={matches} />}
     </div>
   );
 }

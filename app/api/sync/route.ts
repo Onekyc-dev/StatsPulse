@@ -1,0 +1,180 @@
+import { bsd, bsdList, type BsdEvent } from "@/lib/bsd";
+import { dbDelete, dbPatch, dbSelect, dbUpsert } from "@/lib/supabase";
+import { MODEL_VERSION, fitStrengths, predict } from "@/lib/model";
+import { shortCode, teamColor } from "@/lib/teamMeta";
+
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
+const LEAGUE_ID = 1; // Premier League
+const HISTORY_FROM = "2025-08-01";
+const DAY = 86400000;
+
+const ymd = (d: Date) => d.toISOString().slice(0, 10);
+const isoNow = () => new Date().toISOString();
+
+async function pool<T>(items: T[], size: number, fn: (item: T) => Promise<void>): Promise<void> {
+  for (let i = 0; i < items.length; i += size) {
+    await Promise.all(items.slice(i, i + size).map(fn));
+  }
+}
+
+/** Saves teams and fixtures from a batch of provider events. */
+async function ingest(events: BsdEvent[]): Promise<number> {
+  const teams = new Map<number, { id: number; name: string; short: string; color: string; updated_at: string }>();
+  const fixtures = new Map<number, object>();
+  const now = isoNow();
+  for (const e of events) {
+    if (e.home_team_id === null || e.away_team_id === null) continue;
+    teams.set(e.home_team_id, { id: e.home_team_id, name: e.home_team, short: shortCode(e.home_team), color: teamColor(e.home_team), updated_at: now });
+    teams.set(e.away_team_id, { id: e.away_team_id, name: e.away_team, short: shortCode(e.away_team), color: teamColor(e.away_team), updated_at: now });
+    fixtures.set(e.id, {
+      id: e.id,
+      league_id: e.league_id,
+      season_id: e.season_id,
+      round_number: e.round_number,
+      kickoff: e.event_date,
+      status: e.status,
+      home_team_id: e.home_team_id,
+      away_team_id: e.away_team_id,
+      home_score: e.home_score,
+      away_score: e.away_score,
+      venue_id: e.venue_id,
+      updated_at: now
+    });
+  }
+  await dbUpsert("teams", [...teams.values()], "id");
+  await dbUpsert("fixtures", [...fixtures.values()], "id");
+  return fixtures.size;
+}
+
+type LineupResp = {
+  lineup_status?: string;
+  lineups?: unknown;
+  unavailable_players?: { home?: PlayerOut[]; away?: PlayerOut[] } | null;
+};
+type PlayerOut = { id: number; name: string; status?: string; reason?: string };
+
+/** Lineups and absences for one match, plus the provider's prediction as a second opinion. */
+async function enrich(id: number, withPrediction: boolean): Promise<void> {
+  const now = isoNow();
+  const lu = await bsd<LineupResp>(`/events/${id}/lineups/`);
+  if (lu) {
+    await dbUpsert("lineups", [{ fixture_id: id, lineup_status: lu.lineup_status ?? "unavailable", raw: lu.lineups ?? null, updated_at: now }], "fixture_id");
+    const un = lu.unavailable_players;
+    if (un) {
+      const rows = (["home", "away"] as const).flatMap((side) =>
+        (un[side] ?? []).map((p) => ({
+          fixture_id: id, side, player_id: p.id, player_name: p.name, status: p.status ?? null, reason: p.reason ?? null, updated_at: now
+        }))
+      );
+      await dbDelete("absences", { fixture_id: `eq.${id}` });
+      if (rows.length > 0) await dbUpsert("absences", rows, "fixture_id,side,player_id");
+    }
+  }
+  if (withPrediction) {
+    const pr = await bsd<object>(`/events/${id}/prediction/`);
+    if (pr) await dbUpsert("provider_predictions", [{ fixture_id: id, raw: pr, fetched_at: now }], "fixture_id");
+  }
+}
+
+type FxRow = { id: number; home_team_id: number; away_team_id: number; home_score: number | null; away_score: number | null; kickoff: string };
+
+/** Our own predictions for matches that have not kicked off yet. Locked matches are never touched. */
+async function refreshPredictions(log: string[]): Promise<void> {
+  const now = new Date();
+  const hist = await dbSelect<FxRow>("fixtures", {
+    select: "id,home_team_id,away_team_id,home_score,away_score,kickoff",
+    league_id: `eq.${LEAGUE_ID}`, status: "eq.finished", kickoff: `gte.${HISTORY_FROM}T00:00:00Z`, limit: "1000"
+  });
+  const strengths = fitStrengths(
+    hist.filter((f) => f.home_score !== null && f.away_score !== null).map((f) => ({
+      homeId: f.home_team_id, awayId: f.away_team_id, homeGoals: f.home_score as number, awayGoals: f.away_score as number, date: f.kickoff
+    })),
+    now
+  );
+
+  const upcoming = await dbSelect<FxRow>("fixtures", {
+    select: "id,home_team_id,away_team_id,home_score,away_score,kickoff",
+    league_id: `eq.${LEAGUE_ID}`, kickoff: [`gt.${now.toISOString()}`, `lt.${new Date(now.getTime() + 14 * DAY).toISOString()}`], limit: "200"
+  });
+  const rows = upcoming.map((f) => {
+    const p = predict(strengths, f.home_team_id, f.away_team_id);
+    return {
+      fixture_id: f.id, model_version: MODEL_VERSION, home_xg: p.homeXg, away_xg: p.awayXg,
+      p_home: p.outlook.homeWin, p_draw: p.outlook.draw, p_away: p.outlook.awayWin,
+      btts: p.outlook.btts, over25: p.outlook.over25,
+      likely_home: p.outlook.likelyScore[0], likely_away: p.outlook.likelyScore[1], updated_at: now.toISOString()
+    };
+  });
+  if (rows.length > 0) await dbUpsert("predictions", rows, "fixture_id,model_version");
+  log.push(`predictions written for ${rows.length} upcoming matches (from ${hist.length} finished matches)`);
+
+  // Lock: predictions for matches that have kicked off become permanent, stamped with kickoff time.
+  const open = await dbSelect<{ fixture_id: number }>("predictions", {
+    select: "fixture_id", locked_at: "is.null", model_version: `eq.${MODEL_VERSION}`, limit: "1000"
+  });
+  if (open.length > 0) {
+    const fx = await dbSelect<{ id: number; kickoff: string }>("fixtures", {
+      select: "id,kickoff", id: `in.(${open.map((o) => o.fixture_id).join(",")})`, limit: "1000"
+    });
+    let locked = 0;
+    for (const f of fx) {
+      if (new Date(f.kickoff) <= now) {
+        await dbPatch("predictions", { fixture_id: `eq.${f.id}`, model_version: `eq.${MODEL_VERSION}` }, { locked_at: f.kickoff });
+        locked++;
+      }
+    }
+    if (locked > 0) log.push(`locked ${locked} predictions at kickoff`);
+  }
+}
+
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const secret = process.env.CRON_SECRET;
+  const authorized = !!secret && (req.headers.get("authorization") === `Bearer ${secret}` || url.searchParams.get("secret") === secret);
+  if (!authorized) return Response.json({ error: "unauthorized" }, { status: 401 });
+
+  const missing = ["BSD_API_KEY", "SUPABASE_URL", "SUPABASE_SECRET_KEY"].filter((k) => !process.env[k]);
+  if (missing.length > 0) return Response.json({ error: `missing environment variables: ${missing.join(", ")}` }, { status: 500 });
+
+  const mode = url.searchParams.get("mode") ?? "daily";
+  const log: string[] = [];
+  const now = new Date();
+  const base = `/events/?league_id=${LEAGUE_ID}`;
+
+  try {
+    if (mode === "backfill") {
+      const finished = await bsdList<BsdEvent>(`${base}&status=finished&date_from=${HISTORY_FROM}`);
+      log.push(`finished matches saved: ${await ingest(finished)}`);
+      const upcoming = await bsdList<BsdEvent>(`${base}&status=upcoming&date_from=${ymd(now)}&date_to=${ymd(new Date(now.getTime() + 60 * DAY))}`);
+      log.push(`upcoming matches saved: ${await ingest(upcoming)}`);
+      await refreshPredictions(log);
+    } else if (mode === "lineups") {
+      // Collects confirmed lineups of finished matches, in batches, for the stability score later.
+      const finished = await dbSelect<{ id: number }>("fixtures", {
+        select: "id", league_id: `eq.${LEAGUE_ID}`, status: "eq.finished", kickoff: "gte.2026-07-01T00:00:00Z", order: "kickoff.desc", limit: "400"
+      });
+      const have = await dbSelect<{ fixture_id: number }>("lineups", { select: "fixture_id", limit: "1000" });
+      const haveSet = new Set(have.map((h) => h.fixture_id));
+      const todo = finished.filter((f) => !haveSet.has(f.id)).slice(0, 30);
+      await pool(todo, 4, (f) => enrich(f.id, false));
+      log.push(`lineups collected for ${todo.length} finished matches (${finished.length - haveSet.size - todo.length} still to do)`);
+    } else {
+      const recent = await bsdList<BsdEvent>(`${base}&status=finished&date_from=${ymd(new Date(now.getTime() - 10 * DAY))}`);
+      const live = await bsdList<BsdEvent>(`${base}&status=live`);
+      const upcoming = await bsdList<BsdEvent>(`${base}&status=upcoming&date_from=${ymd(now)}&date_to=${ymd(new Date(now.getTime() + 21 * DAY))}`);
+      log.push(`saved ${await ingest([...recent, ...live, ...upcoming])} matches (${recent.length} recent, ${live.length} live, ${upcoming.length} upcoming)`);
+
+      const soon = upcoming.filter((e) => new Date(e.event_date).getTime() < now.getTime() + 14 * DAY);
+      await pool([...live, ...soon], 4, (e) => enrich(e.id, true));
+      const justPlayed = recent.filter((e) => new Date(e.event_date).getTime() > now.getTime() - 3 * DAY);
+      await pool(justPlayed, 4, (e) => enrich(e.id, false));
+      log.push(`lineups and absences refreshed for ${live.length + soon.length + justPlayed.length} matches`);
+      await refreshPredictions(log);
+    }
+    return Response.json({ ok: true, mode, log });
+  } catch (e) {
+    return Response.json({ ok: false, mode, log, error: e instanceof Error ? e.message : String(e) }, { status: 500 });
+  }
+}

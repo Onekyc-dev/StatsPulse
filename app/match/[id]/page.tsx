@@ -1,26 +1,42 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { DataNotice } from "@/components/DataNotice";
 import { MatchHero } from "@/components/match/MatchHero";
 import { OutlookCard } from "@/components/match/OutlookCard";
 import { InsightsCard } from "@/components/match/InsightsCard";
 import { MatchTabs } from "@/components/match/MatchTabs";
-import { getMatch, matches } from "@/data/matches";
+import { loadMatch } from "@/lib/db";
+
+export const revalidate = 60;
 
 type Props = { params: Promise<{ id: string }> };
 
-export function generateStaticParams() {
-  return matches.map((m) => ({ id: m.slug }));
+function idFromSlug(slug: string): number {
+  const last = slug.split("-").pop() ?? "";
+  return /^\d+$/.test(last) ? Number(last) : NaN;
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
-  const match = getMatch(id);
-  return { title: match ? `${match.home.name} v ${match.away.name}` : "Match not found" };
+  const n = idFromSlug(id);
+  if (Number.isNaN(n)) return { title: "Match not found" };
+  const { match } = await loadMatch(n);
+  return { title: match ? `${match.home.name} v ${match.away.name}` : "Match" };
 }
 
 export default async function MatchPage({ params }: Props) {
   const { id } = await params;
-  const match = getMatch(id);
+  const n = idFromSlug(id);
+  if (Number.isNaN(n)) notFound();
+
+  const { match, h2h, error } = await loadMatch(n);
+  if (error) {
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-8">
+        <DataNotice error={error} />
+      </div>
+    );
+  }
   if (!match) notFound();
 
   return (
@@ -32,7 +48,7 @@ export default async function MatchPage({ params }: Props) {
           <OutlookCard match={match} />
           <InsightsCard match={match} />
         </aside>
-        <MatchTabs match={match} />
+        <MatchTabs match={match} h2h={h2h} />
       </div>
     </div>
   );

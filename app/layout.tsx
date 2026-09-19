@@ -34,7 +34,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <TopBar />
             <div className="flex items-center justify-center gap-2 border-b border-draw/20 bg-draw/[0.07] px-4 py-1.5 text-[11.5px] text-draw">
               <span className="h-1.5 w-1.5 rounded-full bg-draw" />
-              Demo data. Real fixtures and predictions connect in the next build.
+              Early build. Predictions come from a baseline model that is still being tested.
             </div>
             <main className="pb-28 lg:pb-12">{children}</main>
           </div>
