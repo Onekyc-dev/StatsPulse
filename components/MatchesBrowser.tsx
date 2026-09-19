@@ -51,7 +51,7 @@ export function MatchesBrowser({ matches }: { matches: Match[] }) {
       </div>
 
       {groups.length === 0 ? (
-        <div className="card mt-6 px-6 py-10 text-center text-sm text-white/55">No matches here yet.</div>
+        <div className="card mt-6 px-6 py-10 text-center text-sm text-white/55">No matches here.</div>
       ) : (
         <div className="mt-6 flex flex-col gap-7">
           {groups.map((g) => (
@@ -59,7 +59,7 @@ export function MatchesBrowser({ matches }: { matches: Match[] }) {
               <h2 className="mb-3 text-sm font-semibold text-white/60">{g.label}</h2>
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {g.items.map((m) => (
-                  <FixtureCard key={m.slug} match={m} />
+                  <FixtureCard key={m.id} match={m} />
                 ))}
               </div>
             </section>

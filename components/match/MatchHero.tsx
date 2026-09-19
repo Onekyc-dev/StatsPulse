@@ -1,11 +1,11 @@
 import Link from "next/link";
-import { ChevronLeft, MapPin } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 import { Crest } from "@/components/Crest";
-import { StatusLabel } from "@/components/FixtureCard";
+import { CentreValue, StatusLabel } from "@/components/FixtureCard";
 import { withAlpha } from "@/lib/color";
-import type { Match, TeamData } from "@/lib/types";
+import type { Match, TeamView } from "@/lib/types";
 
-function Side({ team }: { team: TeamData }) {
+function Side({ team }: { team: TeamView }) {
   return (
     <div className="flex min-w-0 flex-col items-center gap-3 text-center">
       <div className="sm:hidden">
@@ -25,10 +25,7 @@ export function MatchHero({ match }: { match: Match }) {
   return (
     <section className="relative overflow-hidden rounded-3xl border border-white/[0.08] bg-ink-900">
       <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: glow }} />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/40 to-transparent"
-      />
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/40 to-transparent" />
 
       <div className="relative px-4 pb-6 pt-4 sm:px-8 sm:pb-8">
         <div className="flex items-center justify-between text-xs text-white/60">
@@ -37,7 +34,8 @@ export function MatchHero({ match }: { match: Match }) {
             Matches
           </Link>
           <span>
-            {match.competition}, matchday {match.matchday}
+            {match.competition}
+            {match.matchday ? `, matchday ${match.matchday}` : ""}
           </span>
         </div>
 
@@ -45,15 +43,12 @@ export function MatchHero({ match }: { match: Match }) {
           <Side team={match.home} />
           <div className="px-1 text-center">
             <StatusLabel match={match} />
-            <div className="mt-1.5 font-display text-[38px] font-extrabold leading-none tnum sm:text-5xl">{match.time}</div>
-            <div className="mt-2 text-xs text-white/55">{match.dateLabel}</div>
+            <div className="mt-1.5">
+              <CentreValue match={match} size="text-[38px] sm:text-5xl" />
+            </div>
+            <div className="mt-2 text-xs text-white/55">{match.status === "FT" ? match.dateLabel : `${match.dateLabel}, UK time`}</div>
           </div>
           <Side team={match.away} />
-        </div>
-
-        <div className="mt-6 flex items-center justify-center gap-1.5 text-xs text-white/50">
-          <MapPin size={13} />
-          {match.venue}
         </div>
       </div>
     </section>

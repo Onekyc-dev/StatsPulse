@@ -1,12 +1,10 @@
 import { Sparkles } from "lucide-react";
 import { ProbBar } from "@/components/ProbBar";
-import { getOutlook, leanHeadline } from "@/lib/outlook";
+import { leanHeadline, summaryText } from "@/lib/outlook";
 import type { Match } from "@/lib/types";
 
 export function OutlookCard({ match }: { match: Match }) {
-  const o = getOutlook(match);
-  const [hs, as] = o.likelyScore;
-
+  const o = match.outlook;
   return (
     <section className="card p-5">
       <div className="flex items-center justify-between">
@@ -19,44 +17,43 @@ export function OutlookCard({ match }: { match: Match }) {
         </span>
       </div>
 
-      <h2 className="mt-4 font-display text-[22px] font-extrabold leading-tight tracking-tight">
-        {leanHeadline(match, o)}
-      </h2>
-      <p className="mt-2 text-sm leading-relaxed text-white/65">{match.summary}</p>
+      {!o ? (
+        <p className="mt-4 text-sm leading-relaxed text-white/60">
+          No outlook is stored for this match. Outlooks are created within 14 days of kickoff and locked when the match starts.
+        </p>
+      ) : (
+        <>
+          <h2 className="mt-4 font-display text-[22px] font-extrabold leading-tight tracking-tight">{leanHeadline(match)}</h2>
+          <p className="mt-2 text-sm leading-relaxed text-white/65">{summaryText(match)}</p>
 
-      <div className="mt-5">
-        <ProbBar
-          home={o.homeWin}
-          draw={o.draw}
-          away={o.awayWin}
-          homeLabel={match.home.name}
-          awayLabel={match.away.name}
-          large
-        />
-      </div>
+          <div className="mt-5">
+            <ProbBar home={o.homeWin} draw={o.draw} away={o.awayWin} homeLabel={match.home.name} awayLabel={match.away.name} large />
+          </div>
 
-      <dl className="mt-5 grid grid-cols-3 gap-2 text-center">
-        <div className="panel px-2 py-3">
-          <dd className="font-display text-lg font-extrabold tnum">
-            {hs}–{as}
-          </dd>
-          <dt className="mt-0.5 text-[10.5px] leading-tight text-white/45">Likeliest score, {o.likelyScoreChance}%</dt>
-        </div>
-        <div className="panel px-2 py-3">
-          <dd className="font-display text-lg font-extrabold tnum">
-            {match.homeXg.toFixed(1)}–{match.awayXg.toFixed(1)}
-          </dd>
-          <dt className="mt-0.5 text-[10.5px] leading-tight text-white/45">Expected goals</dt>
-        </div>
-        <div className="panel px-2 py-3">
-          <dd className="font-display text-lg font-extrabold tnum">{o.btts}%</dd>
-          <dt className="mt-0.5 text-[10.5px] leading-tight text-white/45">Both teams score</dt>
-        </div>
-      </dl>
+          <dl className="mt-5 grid grid-cols-3 gap-2 text-center">
+            <div className="panel px-2 py-3">
+              <dd className="font-display text-lg font-extrabold tnum">
+                {o.likelyScore[0]}–{o.likelyScore[1]}
+              </dd>
+              <dt className="mt-0.5 text-[10.5px] leading-tight text-white/45">Likeliest score</dt>
+            </div>
+            <div className="panel px-2 py-3">
+              <dd className="font-display text-lg font-extrabold tnum">
+                {o.homeXg.toFixed(1)}–{o.awayXg.toFixed(1)}
+              </dd>
+              <dt className="mt-0.5 text-[10.5px] leading-tight text-white/45">Model goals</dt>
+            </div>
+            <div className="panel px-2 py-3">
+              <dd className="font-display text-lg font-extrabold tnum">{o.btts}%</dd>
+              <dt className="mt-0.5 text-[10.5px] leading-tight text-white/45">Both teams score</dt>
+            </div>
+          </dl>
 
-      <p className="mt-4 text-[11.5px] leading-relaxed text-white/40">
-        An estimate from expected goals, not a guarantee. Inputs are demo values for now.
-      </p>
+          <p className="mt-4 text-[11.5px] leading-relaxed text-white/40">
+            Baseline model built from past results. An estimate, not a guarantee.
+          </p>
+        </>
+      )}
     </section>
   );
 }

@@ -65,9 +65,9 @@ export function Sidebar() {
       </div>
 
       <div className="mt-auto rounded-2xl border border-pulse-500/20 bg-pulse-500/[0.06] p-4">
-        <div className="text-sm font-semibold">Demo build</div>
+        <div className="text-sm font-semibold">Early build</div>
         <p className="mt-1 text-xs leading-relaxed text-white/55">
-          Fixtures and numbers are placeholders until live data is connected.
+          Fixtures and injuries are live. Predictions are from a baseline model still being tested.
         </p>
       </div>
     </aside>

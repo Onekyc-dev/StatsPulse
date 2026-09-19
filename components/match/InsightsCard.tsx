@@ -1,16 +1,16 @@
 import { Shield, ShieldAlert, Target, TrendingUp, type LucideIcon } from "lucide-react";
-import { buildInsights, getOutlook, type Insight } from "@/lib/outlook";
+import { buildInsights, type Insight } from "@/lib/outlook";
 import type { Match } from "@/lib/types";
 
 const icons: Record<Insight["kind"], LucideIcon> = {
   xg: TrendingUp,
-  stability: Shield,
+  form: Shield,
   absence: ShieldAlert,
   goals: Target
 };
 
 export function InsightsCard({ match }: { match: Match }) {
-  const insights = buildInsights(match, getOutlook(match));
+  const insights = buildInsights(match);
   return (
     <section className="card p-5">
       <h2 className="section-title">Why the model sees it this way</h2>
