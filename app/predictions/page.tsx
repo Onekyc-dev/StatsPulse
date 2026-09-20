@@ -7,13 +7,13 @@ export const metadata: Metadata = { title: "Predictions" };
 export const revalidate = 60;
 
 export default async function PredictionsPage() {
-  const [{ matches, error }, record] = await Promise.all([loadMatches(0, 14), loadTrackRecord()]);
+  const [{ matches, error }, record] = await Promise.all([loadMatches(0, 30), loadTrackRecord()]);
   const upcoming = matches.filter((m) => m.status !== "FT" && m.outlook);
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
       <h1 className="font-display text-3xl font-extrabold tracking-tight">Predictions</h1>
-      <p className="mt-1 text-sm text-white/55">Current model outlook for the next two weeks.</p>
+      <p className="mt-1 text-sm text-white/55">Current model outlook for upcoming matches.</p>
 
       <section className="card mt-6 p-5">
         <h2 className="section-title">Track record</h2>

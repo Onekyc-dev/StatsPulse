@@ -26,6 +26,8 @@ async function ingest(events: BsdEvent[]): Promise<number> {
   const now = isoNow();
   for (const e of events) {
     if (e.home_team_id === null || e.away_team_id === null) continue;
+    // Only current Premier League matches are stored, whatever the provider sends back.
+    if (e.league_id !== LEAGUE_ID || e.event_date < HISTORY_FROM) continue;
     teams.set(e.home_team_id, { id: e.home_team_id, name: e.home_team, short: shortCode(e.home_team), color: teamColor(e.home_team), updated_at: now });
     teams.set(e.away_team_id, { id: e.away_team_id, name: e.away_team, short: shortCode(e.away_team), color: teamColor(e.away_team), updated_at: now });
     fixtures.set(e.id, {
@@ -130,7 +132,7 @@ async function refreshPredictions(log: string[]): Promise<void> {
 
   const upcoming = await dbSelect<FxRow>("fixtures", {
     select: "id,home_team_id,away_team_id,home_score,away_score,kickoff",
-    league_id: `eq.${LEAGUE_ID}`, kickoff: [`gt.${now.toISOString()}`, `lt.${new Date(now.getTime() + 14 * DAY).toISOString()}`], limit: "200"
+    league_id: `eq.${LEAGUE_ID}`, kickoff: [`gt.${now.toISOString()}`, `lt.${new Date(now.getTime() + 30 * DAY).toISOString()}`], limit: "200"
   });
   const rows = upcoming.map((f) => {
     const p = predict(strengths, f.home_team_id, f.away_team_id);
@@ -195,12 +197,21 @@ export async function GET(req: Request) {
       const haveSet = new Set(have.map((h) => h.fixture_id));
       const todo = finished.filter((f) => !haveSet.has(f.id)).slice(0, 40);
       await enrichBatch(todo.map((f) => f.id), false, deadline, log, "lineups of finished matches");
-      log.push(`about ${Math.max(0, finished.length - haveSet.size - todo.length)} finished matches still to collect`);
+      const stillToDo = finished.filter((f) => !haveSet.has(f.id)).length - todo.length;
+      log.push(`finished 2026/27 matches stored: ${finished.length}, with lineups already: ${finished.length - todo.length - Math.max(0, stillToDo)}, still to collect: ${Math.max(0, stillToDo)}`);
     } else {
-      const recent = await bsdList<BsdEvent>(`${base}&status=finished&date_from=${ymd(new Date(now.getTime() - 10 * DAY))}`);
-      const live = await bsdList<BsdEvent>(`${base}&status=live`);
-      const upcoming = await bsdList<BsdEvent>(`${base}&status=upcoming&date_from=${ymd(now)}&date_to=${ymd(new Date(now.getTime() + 21 * DAY))}`);
-      log.push(`saved ${await ingest([...recent, ...live, ...upcoming])} matches (${recent.length} recent, ${live.length} live, ${upcoming.length} upcoming)`);
+      const recent = await bsdList<BsdEvent>(`${base}&status=finished&date_from=${ymd(new Date(now.getTime() - 10 * DAY))}`, 400);
+      const upcoming = await bsdList<BsdEvent>(
+        `${base}&status=upcoming&date_from=${ymd(now)}&date_to=${ymd(new Date(now.getTime() + 30 * DAY))}`, 400
+      );
+      // Live matches: look at yesterday to tomorrow and keep anything that has started but not finished.
+      const window = await bsdList<BsdEvent>(
+        `${base}&date_from=${ymd(new Date(now.getTime() - DAY))}&date_to=${ymd(new Date(now.getTime() + DAY))}`, 200
+      );
+      const notLive = ["notstarted", "scheduled", "upcoming", "finished", "cancelled", "postponed", "abandoned", "suspended", "unresolved"];
+      const live = window.filter((e) => e.league_id === LEAGUE_ID && !notLive.includes(String(e.status).toLowerCase()));
+      const saved = await ingest([...recent, ...live, ...upcoming]);
+      log.push(`saved ${saved} matches (${recent.length} recent, ${live.length} live, ${upcoming.length} upcoming)`);
 
       const soon = upcoming
         .filter((e) => new Date(e.event_date).getTime() < now.getTime() + 14 * DAY)

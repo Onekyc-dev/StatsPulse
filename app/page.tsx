@@ -17,7 +17,7 @@ const pillars = [
 ];
 
 export default async function HomePage() {
-  const { matches, error } = await loadMatches(3, 10);
+  const { matches, error } = await loadMatches(3, 30);
   const live = matches.filter((m) => m.status === "LIVE");
   const upcoming = matches.filter((m) => m.status === "TODAY" || m.status === "UPCOMING");
   const results = matches.filter((m) => m.status === "FT").slice(-4).reverse();
@@ -96,7 +96,7 @@ export default async function HomePage() {
                   </ul>
                 </>
               ) : (
-                <p className="text-sm text-white/55">Outlook appears within 14 days of kickoff.</p>
+                <p className="text-sm text-white/55">Outlook appears within 30 days of kickoff.</p>
               )}
               <div className="mt-4 inline-flex items-center gap-2 text-sm font-bold text-pulse-500">
                 Open match intelligence
