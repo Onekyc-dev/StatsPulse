@@ -1,6 +1,7 @@
 import { bsd, bsdList, type BsdEvent } from "@/lib/bsd";
 import { dbDelete, dbInsert, dbPatch, dbSelect, dbSelectAll, dbUpsert } from "@/lib/supabase";
 import { parseTeamLineup } from "@/lib/lineups";
+import { TIERS } from "@/lib/tiers";
 import { DEFAULT_PARAMS, MODEL_VERSION, fitStrengths, predict, type ModelParams } from "@/lib/model";
 import { shortCode, teamColor } from "@/lib/teamMeta";
 
@@ -274,7 +275,7 @@ async function backtest() {
   }));
 
   // How often is the model right when it is confident? (This is what a "70% accurate" claim can honestly mean.)
-  const bp = allProbs[best];
+  const bp = allProbs[0]; // the live model
   const topOf = (p: number[]) => Math.max(...p);
   const hit = (k: number) => bp[k].indexOf(topOf(bp[k])) === outcome(played[START + k]);
   const bands = [0, 0.5, 0.55, 0.6, 0.65, 0.7].map((t) => {
@@ -304,7 +305,35 @@ async function backtest() {
     if (pick.includes(outcome(played[START + k]))) dcHits++;
   });
 
+  // Exclusive confidence tiers, the same ones the site shows.
+  const tierStats = TIERS.map((t) => {
+    const idx = bp.map((_, k) => k).filter((k) => {
+      const top = Math.round(topOf(bp[k]) * 100);
+      return top >= t.min && top < t.max;
+    });
+    return {
+      key: t.key, label: t.label, min: t.min, max: t.max, matches: idx.length,
+      sharePercent: Math.round((idx.length / bp.length) * 100),
+      accuracyPercent: idx.length ? Math.round((idx.filter(hit).length / idx.length) * 100) : null
+    };
+  });
+  const liveScore = models[0];
+  const stats = {
+    modelVersion: MODEL_VERSION, testedAt: isoNow(), matchesTested: played.length - START,
+    brier: liveScore.brier, baselineBrier: score(average).brier, accuracy: liveScore.accuracy,
+    tiers: tierStats,
+    calibration: calibration.map((c) => ({ range: c.top_probability_between_percent, matches: c.matches, stated: c.average_stated_percent, right: c.actually_right_percent }))
+  };
+  let savedForSite = true;
+  try {
+    await dbUpsert("model_stats", [{ key: "backtest", value: stats, updated_at: isoNow() }], "key");
+  } catch {
+    savedForSite = false; // run supabase/migration_3.sql first
+  }
+
   return {
+    saved_for_site: savedForSite,
+    tiers: tierStats,
     double_chance_accuracy_percent: Math.round((dcHits / bp.length) * 100),
     confidence_bands: bands,
     calibration,

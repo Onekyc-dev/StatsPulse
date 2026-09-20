@@ -5,7 +5,7 @@ import { attackRating, defenceRating, fitStrengths, type Strengths } from "./mod
 import { slugify } from "./teamMeta";
 import { parseTeamLineup, type TeamLineup } from "./lineups";
 import { absenceImpact, computeStability } from "./stability";
-import type { Absence, H2H, Match, ProviderView, Result, TeamView, TimelineEvent } from "./types";
+import type { Absence, H2H, Match, ModelStats, ProviderView, Result, TeamView, TimelineEvent } from "./types";
 
 const LEAGUE_ID = 1; // Premier League
 const HISTORY_FROM = "2022-08-01T00:00:00Z";
@@ -285,6 +285,16 @@ async function loadH2H(id: number): Promise<H2H | null> {
         date: m.date ?? "", home: m.home ?? "", away: m.away ?? "", score: m.score ?? ""
       }))
     };
+  } catch {
+    return null;
+  }
+}
+
+/** The latest backtest, saved by the sync job. Null until it has been run once. */
+export async function loadModelStats(): Promise<ModelStats | null> {
+  try {
+    const rows = await dbSelect<{ value: ModelStats }>("model_stats", { select: "value", key: "eq.backtest", limit: "1" }, { revalidate: 300 });
+    return rows[0]?.value ?? null;
   } catch {
     return null;
   }

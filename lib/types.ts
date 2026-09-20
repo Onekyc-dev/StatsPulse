@@ -78,6 +78,18 @@ export type Match = {
 
 export type TimelineEvent = { at: string; team: string; kind: string; text: string };
 
+export type TierStat = { key: string; label: string; min: number; max: number; matches: number; sharePercent: number; accuracyPercent: number | null };
+export type ModelStats = {
+  modelVersion: string;
+  testedAt: string;
+  matchesTested: number;
+  brier: number;
+  baselineBrier: number;
+  accuracy: number;
+  tiers: TierStat[];
+  calibration: { range: string; matches: number; stated: number | null; right: number | null }[];
+};
+
 export type H2H = {
   total: number;
   homeWins: number;

@@ -44,7 +44,7 @@ export function CentreValue({ match, size = "text-[26px]" }: { match: Match; siz
   );
 }
 
-export function FixtureCard({ match }: { match: Match }) {
+export function FixtureCard({ match, note }: { match: Match; note?: string }) {
   const o = match.outlook;
   return (
     <Link
@@ -70,6 +70,7 @@ export function FixtureCard({ match }: { match: Match }) {
 
       {(o || match.status !== "FT") && (
         <div className="mt-5 border-t border-white/[0.06] pt-4">
+          {note && <p className="mb-3 text-[12.5px] font-semibold text-pulse-400">{note}</p>}
           {o ? (
             <ProbBar home={o.homeWin} draw={o.draw} away={o.awayWin} homeLabel={match.home.short} awayLabel={match.away.short} />
           ) : (

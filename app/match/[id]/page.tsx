@@ -5,7 +5,7 @@ import { MatchHero } from "@/components/match/MatchHero";
 import { OutlookCard } from "@/components/match/OutlookCard";
 import { InsightsCard } from "@/components/match/InsightsCard";
 import { MatchTabs } from "@/components/match/MatchTabs";
-import { loadMatch } from "@/lib/db";
+import { loadMatch, loadModelStats } from "@/lib/db";
 
 export const revalidate = 60;
 
@@ -29,7 +29,7 @@ export default async function MatchPage({ params }: Props) {
   const n = idFromSlug(id);
   if (Number.isNaN(n)) notFound();
 
-  const { match, h2h, error } = await loadMatch(n);
+  const [{ match, h2h, error }, stats] = await Promise.all([loadMatch(n), loadModelStats()]);
   if (error) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-8">
@@ -45,7 +45,7 @@ export default async function MatchPage({ params }: Props) {
 
       <div className="mt-5 flex flex-col gap-5 lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-6">
         <aside className="order-first flex flex-col gap-5 lg:sticky lg:top-24 lg:order-last">
-          <OutlookCard match={match} />
+          <OutlookCard match={match} stats={stats} />
           <InsightsCard match={match} />
         </aside>
         <MatchTabs match={match} h2h={h2h} />
