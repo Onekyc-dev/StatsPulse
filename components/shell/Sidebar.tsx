@@ -51,7 +51,7 @@ export function Sidebar() {
           {leagues.map((l) => (
             <li key={l.name}>
               <Link
-                href={l.live ? "/matches" : "#"}
+                href={l.live ? "/table" : "#"}
                 aria-disabled={!l.live}
                 className={`flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] ${
                   l.live ? "text-white/80 hover:bg-white/[0.04]" : "cursor-default text-white/35"
