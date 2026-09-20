@@ -8,20 +8,20 @@ export const MODEL_VERSION = "baseline-v0.1";
  * swing it. Expected goals feed the Poisson model in poisson.ts.
  * Newly promoted clubs have no top-flight history, so they start near average.
  */
-const HALF_LIFE_DAYS = 240;
-const PRIOR_GAMES = 6;
+export type ModelParams = { halfLifeDays: number; priorGames: number };
+export const DEFAULT_PARAMS: ModelParams = { halfLifeDays: 240, priorGames: 6 };
 
 export type HistMatch = { homeId: number; awayId: number; homeGoals: number; awayGoals: number; date: string };
 export type TeamStrength = { att: number; def: number };
 export type Strengths = { avgHome: number; avgAway: number; teams: Map<number, TeamStrength> };
 
-export function fitStrengths(hist: HistMatch[], now: Date): Strengths {
+export function fitStrengths(hist: HistMatch[], now: Date, params: ModelParams = DEFAULT_PARAMS): Strengths {
   const teams = new Map<number, TeamStrength>();
   if (hist.length === 0) return { avgHome: 1.5, avgAway: 1.2, teams };
 
   const weightOf = (h: HistMatch) => {
     const ageDays = Math.max(0, (now.getTime() - new Date(h.date).getTime()) / 86400000);
-    return Math.pow(0.5, ageDays / HALF_LIFE_DAYS);
+    return Math.pow(0.5, ageDays / params.halfLifeDays);
   };
 
   let W = 0, hg = 0, ag = 0;
@@ -50,8 +50,8 @@ export function fitStrengths(hist: HistMatch[], now: Date): Strengths {
   }
   for (const [id, a] of acc) {
     teams.set(id, {
-      att: (a.gf + PRIOR_GAMES * m) / ((a.n + PRIOR_GAMES) * m),
-      def: (a.ga + PRIOR_GAMES * m) / ((a.n + PRIOR_GAMES) * m)
+      att: (a.gf + params.priorGames * m) / ((a.n + params.priorGames) * m),
+      def: (a.ga + params.priorGames * m) / ((a.n + params.priorGames) * m)
     });
   }
   return { avgHome, avgAway, teams };

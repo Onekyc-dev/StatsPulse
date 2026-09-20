@@ -12,6 +12,11 @@ export function leanHeadline(m: Match): string | null {
 
 export type Insight = { kind: "xg" | "form" | "absence" | "goals"; text: string };
 
+/** Injury news only exists once the provider has a lineup for the match, roughly two weeks before kickoff. */
+export function absencesKnown(m: Match): boolean {
+  return m.lineupStatus === "predicted" || m.lineupStatus === "confirmed" || m.home.absences.length + m.away.absences.length > 0;
+}
+
 const points = (f: Result[]) => f.reduce((s, r) => s + (r === "W" ? 3 : r === "D" ? 1 : 0), 0);
 const isOut = (status: string, reason: string) => !(reason === "coach_decision" || status === "coach_decision");
 
@@ -44,8 +49,9 @@ export function buildInsights(m: Match): Insight[] {
   const aOut = m.away.absences.filter((a) => isOut(a.status, a.reason)).length;
   out.push({
     kind: "absence",
-    text:
-      hOut + aOut === 0
+    text: !absencesKnown(m)
+      ? "Injury and suspension news is not available yet for this match."
+      : hOut + aOut === 0
         ? "No unavailable players are listed for either side."
         : `Unavailable players: ${m.home.name} ${hOut}, ${m.away.name} ${aOut}.`
   });
