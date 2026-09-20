@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import { Crest } from "@/components/Crest";
-import { CentreValue, StatusLabel } from "@/components/FixtureCard";
+import { LeagueBadge } from "@/components/LeagueBadge";
+import { LiveCentre } from "@/components/LiveCentre";
+import { slim } from "@/components/FixtureCard";
 import { withAlpha } from "@/lib/color";
 import type { Match, TeamView } from "@/lib/types";
 
@@ -9,10 +11,10 @@ function Side({ team }: { team: TeamView }) {
   return (
     <div className="flex min-w-0 flex-col items-center gap-3 text-center">
       <div className="sm:hidden">
-        <Crest short={team.short} color={team.color} size={62} />
+        <Crest short={team.short} color={team.color} size={62} teamId={team.id} name={team.name} />
       </div>
       <div className="hidden sm:block">
-        <Crest short={team.short} color={team.color} size={84} />
+        <Crest short={team.short} color={team.color} size={84} teamId={team.id} name={team.name} />
       </div>
       <div className="w-full truncate font-display text-[15px] font-extrabold tracking-tight sm:text-xl">{team.name}</div>
     </div>
@@ -33,7 +35,8 @@ export function MatchHero({ match }: { match: Match }) {
             <ChevronLeft size={16} />
             Matches
           </Link>
-          <span>
+          <span className="flex items-center gap-1.5">
+            <LeagueBadge size={16} />
             {match.competition}
             {match.matchday ? `, matchday ${match.matchday}` : ""}
           </span>
@@ -42,11 +45,7 @@ export function MatchHero({ match }: { match: Match }) {
         <div className="mt-6 grid grid-cols-[1fr_auto_1fr] items-center gap-2 sm:gap-6">
           <Side team={match.home} />
           <div className="px-1 text-center">
-            <StatusLabel match={match} />
-            <div className="mt-1.5">
-              <CentreValue match={match} size="text-[38px] sm:text-5xl" />
-            </div>
-            <div className="mt-2 text-xs text-white/55">{match.status === "FT" ? match.dateLabel : `${match.dateLabel}, UK time`}</div>
+            <LiveCentre match={slim(match)} size="text-[38px] sm:text-5xl" subClass="text-xs text-white/55" gap="mt-1.5" />
           </div>
           <Side team={match.away} />
         </div>

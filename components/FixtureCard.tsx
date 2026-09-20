@@ -1,12 +1,14 @@
 import Link from "next/link";
 import { Crest } from "./Crest";
+import { LeagueBadge } from "./LeagueBadge";
+import { LiveCentre } from "./LiveCentre";
 import { ProbBar } from "./ProbBar";
 import type { Match, TeamView } from "@/lib/types";
 
 function TeamSide({ team }: { team: TeamView }) {
   return (
     <div className="flex min-w-0 flex-col items-center gap-2 text-center">
-      <Crest short={team.short} color={team.color} size={46} />
+      <Crest short={team.short} color={team.color} size={46} teamId={team.id} name={team.name} />
       <div className="w-full truncate text-[13px] font-semibold leading-tight">{team.name}</div>
     </div>
   );
@@ -44,6 +46,11 @@ export function CentreValue({ match, size = "text-[26px]" }: { match: Match; siz
   );
 }
 
+/** The few fields the live column needs, so large match data is not sent to the browser twice. */
+export function slim(m: Match) {
+  return { id: m.id, kickoff: m.kickoff, status: m.status, score: m.score, time: m.time, dateLabel: m.dateLabel };
+}
+
 export function FixtureCard({ match, note }: { match: Match; note?: string }) {
   const o = match.outlook;
   return (
@@ -52,18 +59,17 @@ export function FixtureCard({ match, note }: { match: Match; note?: string }) {
       className="card block overflow-hidden p-4 transition-colors hover:border-pulse-500/40 active:bg-ink-700"
     >
       <div className="flex items-center justify-between text-[11px] text-white/45">
-        <span>{match.competition}</span>
+        <span className="flex items-center gap-1.5">
+          <LeagueBadge size={14} />
+          {match.competition}
+        </span>
         <span>{match.matchday ? `Matchday ${match.matchday}` : ""}</span>
       </div>
 
       <div className="mt-4 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
         <TeamSide team={match.home} />
         <div className="px-2 text-center">
-          <StatusLabel match={match} />
-          <div className="mt-1">
-            <CentreValue match={match} />
-          </div>
-          <div className="mt-1 text-[11px] text-white/40">{match.status === "FT" ? match.dateLabel : `${match.dateLabel}, UK`}</div>
+          <LiveCentre match={slim(match)} />
         </div>
         <TeamSide team={match.away} />
       </div>

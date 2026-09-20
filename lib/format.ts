@@ -13,7 +13,9 @@ export function formatKickoff(iso: string) {
 export function deriveStatus(providerStatus: string, kickoffIso: string, now: Date): MatchStatus {
   const s = providerStatus.toLowerCase();
   if (s === "finished") return "FT";
-  if (s === "cancelled" || s === "postponed" || s === "abandoned" || s === "suspended") return "OFF";
+  if (["cancelled", "canceled", "postponed", "abandoned", "suspended", "unresolved"].includes(s)) return "OFF";
+  // A match that never got a final status is treated as finished after 3.5 hours, so it cannot show "Live" forever.
+  if (now.getTime() - new Date(kickoffIso).getTime() > 3.5 * 3600000) return "FT";
   if (s === "notstarted" || s === "scheduled" || s === "upcoming") {
     return dayKey(new Date(kickoffIso)) === dayKey(now) ? "TODAY" : "UPCOMING";
   }

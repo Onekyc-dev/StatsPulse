@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Bell, Search } from "lucide-react";
+import { InstallButton } from "@/components/InstallButton";
 
 export function TopBar() {
   return (
@@ -23,6 +24,7 @@ export function TopBar() {
         </label>
 
         <div className="ml-auto flex items-center gap-2">
+          <InstallButton variant="icon" />
           <button
             aria-label="Search"
             className="flex h-10 w-10 items-center justify-center rounded-xl text-white/70 hover:bg-white/[0.05] lg:hidden"

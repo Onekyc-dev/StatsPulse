@@ -1,29 +1,35 @@
 "use client";
 
 import { useState } from "react";
-import { Activity, Clock, History, Lock, Swords, Users } from "lucide-react";
+import { Clock, History, Lock, Swords } from "lucide-react";
 import { Crest } from "@/components/Crest";
 import { FormPills } from "@/components/FormPills";
 import { niceTime } from "@/lib/format";
 import { parseTeamLineup, surname } from "@/lib/lineups";
 import { absencesKnown } from "@/lib/outlook";
 import { LineupPitch } from "./LineupPitch";
+import { MatchCentre } from "./MatchCentre";
 import type { Absence, H2H, Match, TeamView } from "@/lib/types";
 
-const TABS = [
-  { key: "overview", label: "Overview" },
-  { key: "lineups", label: "Lineups" },
-  { key: "absences", label: "Absences" },
-  { key: "stability", label: "Stability" },
-  { key: "h2h", label: "Head to head" },
-  { key: "live", label: "Live and history" }
-] as const;
-type TabKey = (typeof TABS)[number]["key"];
+type TabKey = "overview" | "centre" | "lineups" | "absences" | "stability" | "h2h" | "history";
+
+function tabsFor(m: Match): { key: TabKey; label: string }[] {
+  const tabs: { key: TabKey; label: string }[] = [
+    { key: "overview", label: "Overview" },
+    { key: "lineups", label: "Lineups" },
+    { key: "absences", label: "Absences" },
+    { key: "stability", label: "Stability" },
+    { key: "h2h", label: "Head to head" },
+    { key: "history", label: "History" }
+  ];
+  if (m.status === "LIVE" || m.status === "FT") tabs.splice(1, 0, { key: "centre", label: m.status === "LIVE" ? "Live" : "Match centre" });
+  return tabs;
+}
 
 function TeamTitle({ team }: { team: TeamView }) {
   return (
     <div className="flex items-center gap-2.5">
-      <Crest short={team.short} color={team.color} size={28} />
+      <Crest short={team.short} color={team.color} size={28} teamId={team.id} name={team.name} />
       <span className="font-display text-[15px] font-bold tracking-tight">{team.name}</span>
     </div>
   );
@@ -509,15 +515,9 @@ function LiveAndHistory({ match }: { match: Match }) {
         </p>
       </section>
 
-      <section className="card p-5">
-        <div className="flex items-center gap-2 text-sm font-semibold">
-          <Activity size={16} className="text-pulse-500" />
-          Live intelligence
-        </div>
-        <p className="mt-3 text-sm leading-relaxed text-white/60">
-          Scores update automatically during matches. Shots, momentum and live win probabilities are planned and need faster data than is set up today.
-        </p>
-      </section>
+      <p className="text-[12px] leading-relaxed text-white/40">
+        Live scores, minutes played, goals, cards, substitutions and match statistics are on the {match.status === "FT" ? "Match centre" : "Live"} tab while a match is on and after it ends.
+      </p>
     </div>
   );
 }
@@ -525,13 +525,14 @@ function LiveAndHistory({ match }: { match: Match }) {
 /* ---------- Tabs ---------- */
 
 export function MatchTabs({ match, h2h }: { match: Match; h2h: H2H | null }) {
-  const [tab, setTab] = useState<TabKey>("overview");
+  const tabs = tabsFor(match);
+  const [tab, setTab] = useState<TabKey>(match.status === "LIVE" ? "centre" : "overview");
 
   return (
     <div className="min-w-0">
       <div className="sticky top-16 z-30 -mx-4 border-b border-white/[0.06] bg-ink/90 px-4 backdrop-blur-xl sm:mx-0 sm:rounded-t-2xl sm:px-2">
         <div role="tablist" aria-label="Match sections" className="no-scrollbar flex gap-1 overflow-x-auto">
-          {TABS.map((t) => {
+          {tabs.map((t) => {
             const active = tab === t.key;
             return (
               <button
@@ -545,6 +546,7 @@ export function MatchTabs({ match, h2h }: { match: Match; h2h: H2H | null }) {
                   active ? "text-white" : "text-white/50 hover:text-white/80"
                 }`}
               >
+                {t.key === "centre" && match.status === "LIVE" && <span className="mr-1.5 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-loss align-middle" />}
                 {t.label}
                 {active && <span className="absolute inset-x-3 bottom-0 h-[2px] rounded-full bg-pulse-500" />}
               </button>
@@ -555,11 +557,12 @@ export function MatchTabs({ match, h2h }: { match: Match; h2h: H2H | null }) {
 
       <div id="match-panel" role="tabpanel" aria-labelledby={`tab-${tab}`} className="pt-5">
         {tab === "overview" && <Overview match={match} />}
+        {tab === "centre" && <MatchCentre match={match} />}
         {tab === "lineups" && <Lineups match={match} />}
         {tab === "absences" && <Absences match={match} />}
         {tab === "stability" && <Stability match={match} />}
         {tab === "h2h" && <HeadToHead match={match} h2h={h2h} />}
-        {tab === "live" && <LiveAndHistory match={match} />}
+        {tab === "history" && <LiveAndHistory match={match} />}
       </div>
     </div>
   );

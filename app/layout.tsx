@@ -4,6 +4,7 @@ import "./globals.css";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { TopBar } from "@/components/shell/TopBar";
 import { BottomNav } from "@/components/shell/BottomNav";
+import { PwaRegister } from "@/components/PwaRegister";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
 const display = Montserrat({
@@ -36,10 +37,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <span className="h-1.5 w-1.5 rounded-full bg-draw" />
               Early build. Predictions come from a baseline model that is still being tested.
             </div>
-            <main className="pb-28 lg:pb-12">{children}</main>
+            <main className="pb-6">{children}</main>
+            <footer className="mx-auto max-w-6xl px-4 pb-28 pt-2 text-[11px] leading-relaxed text-white/30 sm:px-6 lg:px-8 lg:pb-12">
+              StatPulse is an independent project. It is not affiliated with, endorsed by or sponsored by the Premier League or any club. Club names and badges belong to their
+              owners and are shown only to identify teams and competitions. Predictions are model estimates, not guarantees.
+            </footer>
           </div>
         </div>
         <BottomNav />
+        <PwaRegister />
       </body>
     </html>
   );

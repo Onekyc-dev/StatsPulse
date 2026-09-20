@@ -3,6 +3,8 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { InstallButton } from "@/components/InstallButton";
+import { LeagueBadge } from "@/components/LeagueBadge";
 import { isActive, leagues, navItems } from "./nav";
 
 export function Sidebar() {
@@ -55,7 +57,13 @@ export function Sidebar() {
                   l.live ? "text-white/80 hover:bg-white/[0.04]" : "cursor-default text-white/35"
                 }`}
               >
-                <span className="h-2.5 w-2.5 rounded-full" style={{ background: l.dot, opacity: l.live ? 1 : 0.4 }} />
+                {l.live ? (
+                  <span className="flex h-4 w-4 items-center justify-center">
+                    <LeagueBadge size={16} name={l.name} />
+                  </span>
+                ) : (
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ background: l.dot, opacity: 0.4 }} />
+                )}
                 <span className="flex-1">{l.name}</span>
                 {!l.live && <span className="text-[10px] text-white/30">Soon</span>}
               </Link>
@@ -64,11 +72,14 @@ export function Sidebar() {
         </ul>
       </div>
 
-      <div className="mt-auto rounded-2xl border border-pulse-500/20 bg-pulse-500/[0.06] p-4">
+      <div className="mt-auto flex flex-col gap-3">
+        <InstallButton variant="full" />
+      <div className="rounded-2xl border border-pulse-500/20 bg-pulse-500/[0.06] p-4">
         <div className="text-sm font-semibold">Early build</div>
         <p className="mt-1 text-xs leading-relaxed text-white/55">
           Fixtures and injuries are live. Predictions are from a baseline model still being tested.
         </p>
+      </div>
       </div>
     </aside>
   );

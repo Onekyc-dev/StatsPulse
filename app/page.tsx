@@ -2,7 +2,9 @@ import Link from "next/link";
 import { ArrowRight, Shield, ShieldAlert, Sparkles } from "lucide-react";
 import { Crest } from "@/components/Crest";
 import { DataNotice } from "@/components/DataNotice";
-import { CentreValue, FixtureCard, StatusLabel } from "@/components/FixtureCard";
+import { FixtureCard, slim } from "@/components/FixtureCard";
+import { LeagueBadge } from "@/components/LeagueBadge";
+import { LiveCentre } from "@/components/LiveCentre";
 import { ProbBar } from "@/components/ProbBar";
 import { withAlpha } from "@/lib/color";
 import { loadMatches } from "@/lib/db";
@@ -28,7 +30,10 @@ export default async function HomePage() {
   return (
     <div className="mx-auto max-w-6xl space-y-9 px-4 py-6 sm:px-6 lg:px-8">
       <header>
-        <p className="text-sm text-white/50">{featured ? featured.dateLabel : "Premier League"}</p>
+        <p className="flex items-center gap-2 text-sm text-white/50">
+          <LeagueBadge size={18} />
+          {featured ? featured.dateLabel : "Premier League"}
+        </p>
         <h1 className="mt-1 font-display text-[28px] font-extrabold leading-tight tracking-tight sm:text-4xl">
           {hasToday ? "Today in the Premier League" : "Next up in the Premier League"}
         </h1>
@@ -56,18 +61,14 @@ export default async function HomePage() {
               </div>
               <div className="mt-5 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
                 <div className="flex flex-col items-center gap-2.5 text-center">
-                  <Crest short={featured.home.short} color={featured.home.color} size={66} />
+                  <Crest short={featured.home.short} color={featured.home.color} size={66} teamId={featured.home.id} name={featured.home.name} />
                   <span className="font-display text-[15px] font-extrabold sm:text-lg">{featured.home.name}</span>
                 </div>
                 <div className="px-1 text-center">
-                  <StatusLabel match={featured} />
-                  <div className="mt-1">
-                    <CentreValue match={featured} size="text-[40px] sm:text-5xl" />
-                  </div>
-                  <div className="mt-1.5 text-xs text-white/50">{featured.dateLabel}, UK time</div>
+                  <LiveCentre match={slim(featured)} size="text-[40px] sm:text-5xl" subClass="text-xs text-white/50" />
                 </div>
                 <div className="flex flex-col items-center gap-2.5 text-center">
-                  <Crest short={featured.away.short} color={featured.away.color} size={66} />
+                  <Crest short={featured.away.short} color={featured.away.color} size={66} teamId={featured.away.id} name={featured.away.name} />
                   <span className="font-display text-[15px] font-extrabold sm:text-lg">{featured.away.name}</span>
                 </div>
               </div>
