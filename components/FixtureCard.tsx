@@ -72,7 +72,7 @@ export function FixtureCard({ match }: { match: Match }) {
         {o ? (
           <ProbBar home={o.homeWin} draw={o.draw} away={o.awayWin} homeLabel={match.home.short} awayLabel={match.away.short} />
         ) : (
-          <p className="text-center text-[12px] text-white/40">Outlook appears within 14 days of kickoff.</p>
+          <p className="text-center text-[12px] text-white/40">Outlook appears within 30 days of kickoff.</p>
         )}
       </div>
     </Link>

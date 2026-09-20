@@ -377,7 +377,7 @@ function LiveAndHistory({ match }: { match: Match }) {
           </dl>
         ) : (
           <p className="mt-3 text-sm leading-relaxed text-white/55">
-            No prediction was stored for this match. Predictions are stored within 14 days of kickoff and locked when the match starts.
+            No prediction was stored for this match. Predictions are stored within 30 days of kickoff and locked when the match starts.
           </p>
         )}
         {match.provider && (

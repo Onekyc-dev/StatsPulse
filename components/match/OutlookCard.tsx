@@ -19,7 +19,7 @@ export function OutlookCard({ match }: { match: Match }) {
 
       {!o ? (
         <p className="mt-4 text-sm leading-relaxed text-white/60">
-          No outlook is stored for this match. Outlooks are created within 14 days of kickoff and locked when the match starts.
+          No outlook is stored for this match. Outlooks are created within 30 days of kickoff and locked when the match starts.
         </p>
       ) : (
         <>
