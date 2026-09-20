@@ -1,5 +1,5 @@
 import { bsd, bsdList, type BsdEvent } from "@/lib/bsd";
-import { dbDelete, dbPatch, dbSelect, dbUpsert } from "@/lib/supabase";
+import { dbDelete, dbPatch, dbSelect, dbSelectAll, dbUpsert } from "@/lib/supabase";
 import { DEFAULT_PARAMS, MODEL_VERSION, fitStrengths, predict, type ModelParams } from "@/lib/model";
 import { shortCode, teamColor } from "@/lib/teamMeta";
 
@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const LEAGUE_ID = 1; // Premier League
-const HISTORY_FROM = "2025-08-01";
+const HISTORY_FROM = "2022-08-01"; // four full seasons plus the current one
 const DAY = 86400000;
 
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
@@ -119,9 +119,9 @@ type FxRow = { id: number; home_team_id: number; away_team_id: number; home_scor
 /** Our own predictions for matches that have not kicked off yet. Locked matches are never touched. */
 async function refreshPredictions(log: string[]): Promise<void> {
   const now = new Date();
-  const hist = await dbSelect<FxRow>("fixtures", {
+  const hist = await dbSelectAll<FxRow>("fixtures", {
     select: "id,home_team_id,away_team_id,home_score,away_score,kickoff",
-    league_id: `eq.${LEAGUE_ID}`, status: "eq.finished", kickoff: `gte.${HISTORY_FROM}T00:00:00Z`, limit: "1000"
+    league_id: `eq.${LEAGUE_ID}`, status: "eq.finished", kickoff: `gte.${HISTORY_FROM}T00:00:00Z`, order: "kickoff.asc,id.asc"
   });
   const strengths = fitStrengths(
     hist.filter((f) => f.home_score !== null && f.away_score !== null).map((f) => ({
@@ -147,17 +147,17 @@ async function refreshPredictions(log: string[]): Promise<void> {
   log.push(`predictions written for ${rows.length} upcoming matches (from ${hist.length} finished matches)`);
 
   // Lock: predictions for matches that have kicked off become permanent, stamped with kickoff time.
-  const open = await dbSelect<{ fixture_id: number }>("predictions", {
-    select: "fixture_id", locked_at: "is.null", model_version: `eq.${MODEL_VERSION}`, limit: "1000"
+  const open = await dbSelect<{ fixture_id: number; model_version: string }>("predictions", {
+    select: "fixture_id,model_version", locked_at: "is.null", limit: "1000"
   });
   if (open.length > 0) {
     const fx = await dbSelect<{ id: number; kickoff: string }>("fixtures", {
-      select: "id,kickoff", id: `in.(${open.map((o) => o.fixture_id).join(",")})`, limit: "1000"
+      select: "id,kickoff", id: `in.(${[...new Set(open.map((o) => o.fixture_id))].join(",")})`, limit: "1000"
     });
     let locked = 0;
     for (const f of fx) {
       if (new Date(f.kickoff) <= now) {
-        await dbPatch("predictions", { fixture_id: `eq.${f.id}`, model_version: `eq.${MODEL_VERSION}` }, { locked_at: f.kickoff });
+        await dbPatch("predictions", { fixture_id: `eq.${f.id}`, locked_at: "is.null" }, { locked_at: f.kickoff });
         locked++;
       }
     }
@@ -169,56 +169,70 @@ type Score = { brier: number; logLoss: number; accuracy: number };
 
 /** Replays the model over past matches: each is predicted using only the matches before it. */
 async function backtest() {
-  const rows = await dbSelect<FxRow>("fixtures", {
+  const rows = await dbSelectAll<FxRow>("fixtures", {
     select: "id,home_team_id,away_team_id,home_score,away_score,kickoff",
-    league_id: `eq.${LEAGUE_ID}`, status: "eq.finished", kickoff: `gte.${HISTORY_FROM}T00:00:00Z`, order: "kickoff.asc", limit: "1000"
+    league_id: `eq.${LEAGUE_ID}`, status: "eq.finished", kickoff: `gte.${HISTORY_FROM}T00:00:00Z`, order: "kickoff.asc,id.asc"
   });
   const played = rows
     .filter((f) => f.home_score !== null && f.away_score !== null)
     .map((f) => ({ homeId: f.home_team_id, awayId: f.away_team_id, homeGoals: f.home_score as number, awayGoals: f.away_score as number, date: f.kickoff }));
-  const START = 100; // the first matches only train the model
+  const START = Math.min(300, Math.floor(played.length / 2)); // the first matches only train the model
   const outcome = (h: { homeGoals: number; awayGoals: number }) => (h.homeGoals > h.awayGoals ? 0 : h.homeGoals === h.awayGoals ? 1 : 2);
+  const r3 = (v: number) => Math.round(v * 1000) / 1000;
 
-  const score = (probsFor: (i: number) => number[]): Score => {
-    let brier = 0, logLoss = 0, hits = 0, n = 0;
-    for (let i = START; i < played.length; i++) {
-      const p = probsFor(i);
-      const o = outcome(played[i]);
-      brier += p.reduce((s, pr, k) => s + (pr - (k === o ? 1 : 0)) ** 2, 0);
+  const score = (probs: number[][]): Score => {
+    let brier = 0, logLoss = 0, hits = 0;
+    probs.forEach((p, k) => {
+      const o = outcome(played[START + k]);
+      brier += p.reduce((s, pr, c) => s + (pr - (c === o ? 1 : 0)) ** 2, 0);
       logLoss += -Math.log(Math.max(0.001, p[o]));
       if (p.indexOf(Math.max(...p)) === o) hits++;
-      n++;
-    }
-    const r = (v: number) => Math.round(v * 1000) / 1000;
-    return { brier: r(brier / n), logLoss: r(logLoss / n), accuracy: Math.round((hits / n) * 100) };
+    });
+    return { brier: r3(brier / probs.length), logLoss: r3(logLoss / probs.length), accuracy: Math.round((hits / probs.length) * 100) };
   };
 
   const configs: ModelParams[] = [
     DEFAULT_PARAMS,
-    { halfLifeDays: 120, priorGames: 6 },
-    { halfLifeDays: 480, priorGames: 6 },
-    { halfLifeDays: 240, priorGames: 3 },
-    { halfLifeDays: 240, priorGames: 12 },
-    { halfLifeDays: 240, priorGames: 20 }
+    { halfLifeDays: 240, priorGames: 6 },
+    { halfLifeDays: 600, priorGames: 6 },
+    { halfLifeDays: 1200, priorGames: 6 },
+    { halfLifeDays: 600, priorGames: 12 },
+    { halfLifeDays: 600, priorGames: 3 }
   ];
-  const models = configs.map((cfg) => ({
-    settings: cfg,
-    ...score((i) => {
+  const run = (cfg: ModelParams): number[][] => {
+    const out: number[][] = [];
+    for (let i = START; i < played.length; i++) {
       const s = fitStrengths(played.slice(0, i), new Date(played[i].date), cfg);
       const o = predict(s, played[i].homeId, played[i].awayId).outlook;
-      return [o.homeWin / 100, o.draw / 100, o.awayWin / 100];
-    })
+      out.push([o.homeWin / 100, o.draw / 100, o.awayWin / 100]);
+    }
+    return out;
+  };
+  const allProbs = configs.map(run);
+  const models = configs.map((cfg, k) => ({ settings: cfg, ...score(allProbs[k]) }));
+  const best = models.reduce((bi, m, k) => (m.brier < models[bi].brier ? k : bi), 0);
+
+  const average: number[][] = [];
+  for (let i = START; i < played.length; i++) {
+    const c = [0, 0, 0];
+    for (let j = 0; j < i; j++) c[outcome(played[j])]++;
+    average.push(c.map((v) => v / i));
+  }
+  // Is the model overconfident? Blend it toward the average outcome and see whether the score improves.
+  const blends = [0, 0.1, 0.2, 0.3].map((w) => ({
+    weight_on_average: w,
+    ...score(allProbs[best].map((p, k) => p.map((v, c) => (1 - w) * v + w * average[k][c])))
   }));
 
-  const baseline = score((i) => {
-    const seen = played.slice(0, i);
-    const c = [0, 0, 0];
-    seen.forEach((m) => c[outcome(m)]++);
-    return c.map((v) => v / seen.length);
-  });
-  const uniform = score(() => [1 / 3, 1 / 3, 1 / 3]);
-
-  return { matchesTested: played.length - START, models, baseline_average_outcome: baseline, guessing_one_third_each: uniform };
+  return {
+    matchesInDatabase: played.length,
+    matchesTested: played.length - START,
+    models,
+    best_model_number: best + 1,
+    blend_best_model_toward_average: blends,
+    baseline_average_outcome: score(average),
+    guessing_one_third_each: score(average.map(() => [1 / 3, 1 / 3, 1 / 3]))
+  };
 }
 
 export async function GET(req: Request) {
@@ -242,7 +256,7 @@ export async function GET(req: Request) {
       const result = await backtest();
       return Response.json({ ok: true, mode, result });
     } else if (mode === "backfill") {
-      const finished = await bsdList<BsdEvent>(`${base}&status=finished&date_from=${HISTORY_FROM}`);
+      const finished = await bsdList<BsdEvent>(`${base}&status=finished&date_from=${HISTORY_FROM}`, 3400);
       log.push(`finished matches saved: ${await ingest(finished)}`);
       const upcoming = await bsdList<BsdEvent>(`${base}&status=upcoming&date_from=${ymd(now)}&date_to=${ymd(new Date(now.getTime() + 60 * DAY))}`);
       log.push(`upcoming matches saved: ${await ingest(upcoming)}`);

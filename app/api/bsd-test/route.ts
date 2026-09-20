@@ -1,33 +1,26 @@
-/** TEMPORARY. Shows the raw shape of lineup and prediction data so the display can be finished. Delete afterwards. */
+/** TEMPORARY. Shows the raw lineup layout of one finished match. Delete afterwards. */
 export const dynamic = "force-dynamic";
-const BASE = "https://sports.bzzoiro.com/api/v2";
-
-async function get(path: string, key: string): Promise<{ status: number; body: string }> {
-  const res = await fetch(`${BASE}${path}`, { headers: { Authorization: `Token ${key}` }, cache: "no-store" });
-  return { status: res.status, body: await res.text() };
-}
 
 export async function GET() {
   const key = process.env.BSD_API_KEY;
   const headers = { "content-type": "text/plain; charset=utf-8" };
   if (!key) return new Response("BSD_API_KEY is not set", { headers });
-
-  const today = new Date().toISOString().slice(0, 10);
-  const list = await get(`/events/?league_id=1&status=upcoming&date_from=${today}&limit=5`, key);
-  let id = "";
+  const res = await fetch("https://sports.bzzoiro.com/api/v2/events/209576/lineups/", {
+    headers: { Authorization: `Token ${key}` },
+    cache: "no-store"
+  });
+  const text = await res.text();
+  let summary = "";
   try {
-    const rows = (JSON.parse(list.body) as { results?: { id: number; event_date: string }[] }).results ?? [];
-    rows.sort((a, b) => a.event_date.localeCompare(b.event_date));
-    id = rows.length ? String(rows[0].id) : "";
+    const j = JSON.parse(text) as { lineups?: Record<string, unknown> };
+    const l = j.lineups ?? {};
+    summary = `top-level keys of lineups: ${Object.keys(l).join(", ")}\n`;
+    for (const side of Object.keys(l)) {
+      const v = l[side];
+      if (v && typeof v === "object") summary += `keys of ${side}: ${Object.keys(v as object).join(", ")}\n`;
+    }
   } catch {
-    id = "";
+    summary = "could not read the response\n";
   }
-  const out = [`nearest match id: ${id || "none"}`, ""];
-  if (id) {
-    const lu = await get(`/events/${id}/lineups/`, key);
-    out.push(`LINEUPS (HTTP ${lu.status}):`, lu.body.slice(0, 3200), "");
-    const pr = await get(`/events/${id}/prediction/`, key);
-    out.push(`PREDICTION (HTTP ${pr.status}):`, pr.body.slice(0, 1800));
-  }
-  return new Response(out.join("\n"), { headers });
+  return new Response(`HTTP ${res.status}\n${summary}\n${text.slice(0, 2600)}`, { headers });
 }
