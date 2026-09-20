@@ -3,6 +3,8 @@ import { bsd } from "./bsd";
 import { deriveStatus, formatKickoff } from "./format";
 import { attackRating, defenceRating, fitStrengths, type Strengths } from "./model";
 import { slugify } from "./teamMeta";
+import { parseTeamLineup, type TeamLineup } from "./lineups";
+import { absenceImpact, computeStability } from "./stability";
 import type { Absence, H2H, Match, ProviderView, Result, TeamView } from "./types";
 
 const LEAGUE_ID = 1; // Premier League
@@ -20,7 +22,7 @@ type FixtureRow = {
   away_score: number | null;
 };
 type TeamRow = { id: number; name: string; short: string; color: string };
-type AbsenceRow = { fixture_id: number; side: "home" | "away"; player_name: string; status: string | null; reason: string | null };
+type AbsenceRow = { fixture_id: number; side: "home" | "away"; player_id: number; player_name: string; status: string | null; reason: string | null };
 type PredRow = {
   fixture_id: number; model_version: string; home_xg: number; away_xg: number;
   p_home: number; p_draw: number; p_away: number; btts: number; over25: number;
@@ -69,7 +71,8 @@ function teamView(teamId: number, before: string, ctx: Ctx, absences: Absence[])
     avgConceded: played.length ? Math.round((ga / played.length) * 10) / 10 : null,
     attack: attackRating(ctx.strengths, teamId),
     defence: defenceRating(ctx.strengths, teamId),
-    absences
+    absences,
+    stability: null
   };
 }
 
@@ -90,7 +93,7 @@ function buildMatch(f: FixtureRow, ctx: Ctx, now: Date): Match {
   const abs = (side: "home" | "away"): Absence[] =>
     ctx.absences
       .filter((a) => a.fixture_id === f.id && a.side === side)
-      .map((a) => ({ name: a.player_name, status: a.status ?? "unavailable", reason: a.reason ?? "" }));
+      .map((a) => ({ id: a.player_id, name: a.player_name, status: a.status ?? "unavailable", reason: a.reason ?? "", impact: null, started: null, of: null }));
   const p = ctx.preds.get(f.id);
   const lu = ctx.lineups.get(f.id);
   const { dateLabel, time } = formatKickoff(f.kickoff);
@@ -136,7 +139,7 @@ async function loadContext(fixtureIds: number[], withRaw: boolean): Promise<Ctx>
       { select: FIXTURE_COLS, league_id: `eq.${LEAGUE_ID}`, status: "eq.finished", kickoff: `gte.${HISTORY_FROM}`, order: "kickoff.asc,id.asc" },
       { revalidate: CACHE }
     ),
-    dbSelect<AbsenceRow>("absences", { select: "fixture_id,side,player_name,status,reason", fixture_id: idList, limit: "1000" }, { revalidate: CACHE }),
+    dbSelect<AbsenceRow>("absences", { select: "fixture_id,side,player_id,player_name,status,reason", fixture_id: idList, limit: "1000" }, { revalidate: CACHE }),
     dbSelect<PredRow>("predictions", { select: "*", fixture_id: idList, limit: "1000" }, { revalidate: CACHE }),
     dbSelect<LineupRow>("lineups", { select: withRaw ? "fixture_id,lineup_status,raw" : "fixture_id,lineup_status", fixture_id: idList, limit: "1000" }, { revalidate: CACHE }),
     withRaw
@@ -183,10 +186,48 @@ export async function loadMatch(id: number): Promise<{ match: Match | null; h2h:
     if (rows.length === 0) return { match: null, h2h: null, error: null };
     const ctx = await loadContext([id], true);
     const match = buildMatch(rows[0], ctx, new Date());
+    await addLineupIntelligence(match, rows[0], ctx);
     return { match, h2h: await loadH2H(id), error: null };
   } catch (e) {
     return { match: null, h2h: null, error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+/** Adds absence impact and the stability score, using the lineups stored for each team's earlier matches. */
+async function addLineupIntelligence(match: Match, f: FixtureRow, ctx: Ctx): Promise<void> {
+  const earlier = (teamId: number) =>
+    ctx.finished
+      .filter((x) => (x.home_team_id === teamId || x.away_team_id === teamId) && x.kickoff < f.kickoff)
+      .sort((a, b) => b.kickoff.localeCompare(a.kickoff))
+      .slice(0, 5);
+  const homeFx = earlier(f.home_team_id);
+  const awayFx = earlier(f.away_team_id);
+  const ids = [...new Set([...homeFx, ...awayFx].map((x) => x.id))];
+  if (ids.length === 0) return;
+
+  const rows = await dbSelect<{ fixture_id: number; raw: unknown }>(
+    "lineups",
+    { select: "fixture_id,raw", fixture_id: `in.(${ids.join(",")})`, limit: "50" },
+    { revalidate: CACHE }
+  );
+  const rawById = new Map(rows.map((r) => [r.fixture_id, r.raw]));
+  const lineupsOf = (teamId: number, fx: FixtureRow[]): TeamLineup[] =>
+    fx.flatMap((x) => {
+      const l = parseTeamLineup(rawById.get(x.id), x.home_team_id === teamId ? "home" : "away");
+      return l ? [l] : [];
+    });
+
+  const apply = (team: TeamView, side: "home" | "away", prev: TeamLineup[]) => {
+    team.absences = team.absences.map((a) => {
+      const r = absenceImpact(a.id, prev);
+      return { ...a, impact: r.impact, started: r.impact === "Unknown" && r.of === 0 ? null : r.started, of: r.of };
+    });
+    const cur = parseTeamLineup(match.lineupRaw, side);
+    const out = team.absences.filter((a) => a.reason !== "coach_decision" && a.status !== "coach_decision").map((a) => a.id);
+    if (cur) team.stability = computeStability(cur, prev, out);
+  };
+  apply(match.home, "home", lineupsOf(f.home_team_id, homeFx));
+  apply(match.away, "away", lineupsOf(f.away_team_id, awayFx));
 }
 
 async function loadH2H(id: number): Promise<H2H | null> {

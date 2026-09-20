@@ -5,9 +5,10 @@ import { Activity, Clock, History, Lock, Swords, Users } from "lucide-react";
 import { Crest } from "@/components/Crest";
 import { FormPills } from "@/components/FormPills";
 import { niceTime } from "@/lib/format";
-import { extractXI } from "@/lib/lineups";
+import { parseTeamLineup, surname } from "@/lib/lineups";
 import { absencesKnown } from "@/lib/outlook";
-import type { H2H, Match, TeamView } from "@/lib/types";
+import { LineupPitch } from "./LineupPitch";
+import type { Absence, H2H, Match, TeamView } from "@/lib/types";
 
 const TABS = [
   { key: "overview", label: "Overview" },
@@ -182,47 +183,49 @@ const lineupLabel: Record<string, string> = {
 function Lineups({ match }: { match: Match }) {
   const [side, setSide] = useState<"home" | "away">("home");
   const team = side === "home" ? match.home : match.away;
-  const xi = extractXI(match.lineupRaw, side);
+  const lineup = parseTeamLineup(match.lineupRaw, side);
   const label = lineupLabel[match.lineupStatus] ?? match.lineupStatus;
 
   return (
     <div className="flex flex-col gap-4">
       <TeamToggle match={match} value={side} onChange={setSide} />
       <section className="card p-5">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <TeamTitle team={team} />
-          <span className="rounded-full border border-draw/30 bg-draw/10 px-2.5 py-0.5 text-[11px] font-semibold text-draw">{label}</span>
+          <div className="flex items-center gap-2">
+            {lineup?.formation && (
+              <span className="rounded-full border border-white/[0.12] bg-white/[0.05] px-2.5 py-0.5 text-[11px] font-bold tnum">{lineup.formation}</span>
+            )}
+            <span className="rounded-full border border-draw/30 bg-draw/10 px-2.5 py-0.5 text-[11px] font-semibold text-draw">{label}</span>
+          </div>
         </div>
-        {xi ? (
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <ol className="flex flex-col gap-1.5">
-              {xi.starters.map((n, i) => (
-                <li key={i} className="panel flex items-center gap-3 px-3 py-2 text-sm">
-                  <span className="w-5 text-center text-[11px] font-bold text-white/35">{i + 1}</span>
-                  {n}
-                </li>
-              ))}
-            </ol>
-            {xi.bench.length > 0 && (
-              <div>
+
+        {lineup ? (
+          <>
+            <div className="mt-4">
+              <LineupPitch lineup={lineup} color={team.color} />
+            </div>
+            {lineup.subs.length > 0 && (
+              <div className="mt-5">
                 <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-white/40">Bench</div>
-                <ul className="flex flex-col gap-1 text-sm text-white/65">
-                  {xi.bench.map((n, i) => (
-                    <li key={i}>{n}</li>
+                <ul className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[13px] text-white/65">
+                  {lineup.subs.map((p) => (
+                    <li key={p.id} className="flex gap-2">
+                      <span className="w-5 shrink-0 text-right text-[11px] font-bold text-white/30">{p.number ?? ""}</span>
+                      <span className="truncate">{surname(p)}</span>
+                    </li>
                   ))}
                 </ul>
               </div>
             )}
-          </div>
+          </>
         ) : (
           <p className="mt-4 text-sm leading-relaxed text-white/55">
-            {match.lineupStatus === "unavailable" || match.lineupStatus === "unknown"
-              ? "No lineup exists yet. A predicted XI usually appears about two weeks before kickoff, and the confirmed one shortly before the match."
-              : "A lineup is stored for this match, but its layout is not displayed yet."}
+            No lineup exists yet. A predicted XI usually appears about two weeks before kickoff, and the confirmed one shortly before the match.
           </p>
         )}
         <p className="mt-4 text-[12.5px] leading-relaxed text-white/45">
-          When the official XI is announced, StatPulse will compare it with the predicted one and explain what changed.
+          The gold ring marks the captain. When the official XI is announced, StatPulse will compare it with the predicted one and explain what changed.
         </p>
       </section>
     </div>
@@ -236,6 +239,22 @@ function statusText(status: string, reason: string): { label: string; tone: stri
   if (status === "suspended") return { label: "Suspended", tone: "bg-loss/15 text-loss" };
   if (status === "doubtful") return { label: "Doubtful", tone: "bg-draw/15 text-draw" };
   return { label: "Injured", tone: "bg-loss/15 text-loss" };
+}
+
+const impactTone: Record<string, string> = {
+  High: "bg-loss/15 text-loss",
+  Medium: "bg-draw/15 text-draw",
+  Low: "bg-white/10 text-white/60",
+  Unknown: "bg-white/10 text-white/50"
+};
+
+function impactText(a: Absence): string {
+  if (a.impact === null || a.of === null) return "";
+  if (a.impact === "Unknown") return "Not enough recent lineups to judge how much this matters.";
+  const s = `Started ${a.started ?? 0} of the last ${a.of} matches.`;
+  if (a.impact === "High") return `${s} A regular starter, so the usual eleven has to change.`;
+  if (a.impact === "Medium") return `${s} A frequent starter.`;
+  return `${s} Mostly a squad player, so the effect on the team is small.`;
 }
 
 function Absences({ match }: { match: Match }) {
@@ -257,23 +276,89 @@ function Absences({ match }: { match: Match }) {
             <p className="mt-4 text-sm text-white/55">No unavailable players listed.</p>
           ) : (
             <ul className="mt-4 flex flex-col gap-2.5">
-              {t.absences.map((a, i) => {
-                const s = statusText(a.status, a.reason);
-                const reason = a.reason && a.reason !== "coach_decision" ? a.reason : "Coach decision";
-                return (
-                  <li key={i} className="panel flex flex-wrap items-center gap-2 p-3.5">
-                    <span className="font-display text-[15px] font-bold">{a.name}</span>
-                    <span className={`rounded-md px-2 py-0.5 text-[11px] font-bold ${s.tone}`}>{s.label}</span>
-                    <span className="w-full text-[12.5px] text-white/50 sm:ml-auto sm:w-auto">{reason.replace(/_/g, " ")}</span>
-                  </li>
-                );
-              })}
+              {[...t.absences]
+                .sort((x, y) => (["High", "Medium", "Low", "Unknown"].indexOf(x.impact ?? "Unknown")) - (["High", "Medium", "Low", "Unknown"].indexOf(y.impact ?? "Unknown")))
+                .map((a) => {
+                  const s = statusText(a.status, a.reason);
+                  const reason = a.reason && a.reason !== "coach_decision" ? a.reason : "Coach decision";
+                  const note = impactText(a);
+                  return (
+                    <li key={a.id} className="panel p-3.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-display text-[15px] font-bold">{a.name}</span>
+                        <span className={`rounded-md px-2 py-0.5 text-[11px] font-bold ${s.tone}`}>{s.label}</span>
+                        {a.impact && a.impact !== "Unknown" && (
+                          <span className={`ml-auto rounded-md px-2 py-0.5 text-[11px] font-bold ${impactTone[a.impact]}`}>{a.impact} impact</span>
+                        )}
+                      </div>
+                      <div className="mt-1.5 text-[12.5px] text-white/50">{reason.replace(/_/g, " ")}</div>
+                      {note && <p className="mt-1.5 text-[12.5px] leading-relaxed text-white/60">{note}</p>}
+                    </li>
+                  );
+                })}
             </ul>
           )}
         </section>
       ))}
       <p className="text-[12px] leading-relaxed text-white/40">
-        Lists come from the data provider. How much each absence matters, based on how often the player starts, is the next feature to be built.
+        Impact comes from how often the player started the team&apos;s last five matches, using stored lineups. It is not a judgement of quality.
+      </p>
+    </div>
+  );
+}
+
+/* ---------- Stability ---------- */
+
+function StabilityCard({ team, note }: { team: TeamView; note: string }) {
+  const s = team.stability;
+  return (
+    <section className="card p-5">
+      <TeamTitle team={team} />
+      {!s ? (
+        <p className="mt-4 text-sm leading-relaxed text-white/55">{note}</p>
+      ) : (
+        <>
+          <div className="mt-4 flex items-end gap-3">
+            <div className="font-display text-5xl font-extrabold leading-none tnum">{s.score}</div>
+            <div className="pb-1">
+              <div className="text-sm font-semibold text-pulse-400">{s.label}</div>
+              <div className="text-[11px] text-white/40">out of 100</div>
+            </div>
+          </div>
+          <p className="mt-3 text-[12.5px] leading-relaxed text-white/50">
+            {s.changes === 0 ? "The same eleven as last time." : `${s.changes} ${s.changes === 1 ? "change" : "changes"} to the eleven since the last match.`} Compared with the last {s.comparedWith} {s.comparedWith === 1 ? "match" : "matches"}.
+          </p>
+          <ul className="mt-5 flex flex-col gap-3.5">
+            {s.factors.map((f) => (
+              <li key={f.key}>
+                <div className="mb-1.5 flex items-baseline justify-between text-[13px]">
+                  <span className="text-white/70">
+                    {f.label} <span className="text-[11px] text-white/35">{Math.round(f.weight * 100)}%</span>
+                  </span>
+                  <span className="font-display font-bold tnum">{f.value}</span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
+                  <div className="h-full rounded-full bg-pulse-500" style={{ width: `${f.value}%` }} />
+                </div>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
+  );
+}
+
+function Stability({ match }: { match: Match }) {
+  const note = "Needs a predicted or confirmed eleven, which appears about two weeks before kickoff, and earlier matches with stored lineups.";
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="grid gap-5 md:grid-cols-2">
+        <StabilityCard team={match.home} note={note} />
+        <StabilityCard team={match.away} note={note} />
+      </div>
+      <p className="text-[12px] leading-relaxed text-white/40">
+        Stability is a weighted average of the five factors, with the weights shown beside each one. It only uses lineups stored since this season began, so it gets sharper each match.
       </p>
     </div>
   );
@@ -446,13 +531,7 @@ export function MatchTabs({ match, h2h }: { match: Match; h2h: H2H | null }) {
         {tab === "overview" && <Overview match={match} />}
         {tab === "lineups" && <Lineups match={match} />}
         {tab === "absences" && <Absences match={match} />}
-        {tab === "stability" && (
-          <EmptyState
-            icon={Users}
-            title="Team stability is being built"
-            text="The score needs lineup history: how much of the starting eleven stays the same from match to match. Confirmed lineups are being collected now, and the score appears once there is enough of them."
-          />
-        )}
+        {tab === "stability" && <Stability match={match} />}
         {tab === "h2h" && <HeadToHead match={match} h2h={h2h} />}
         {tab === "live" && <LiveAndHistory match={match} />}
       </div>

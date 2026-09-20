@@ -10,7 +10,7 @@ export function leanHeadline(m: Match): string | null {
   return best >= 55 ? `${name} are clear favourites` : `${name} are slight favourites`;
 }
 
-export type Insight = { kind: "xg" | "form" | "absence" | "goals"; text: string };
+export type Insight = { kind: "xg" | "form" | "absence" | "goals" | "stability"; text: string };
 
 /** Injury news only exists once the provider has a lineup for the match, roughly two weeks before kickoff. */
 export function absencesKnown(m: Match): boolean {
@@ -47,14 +47,34 @@ export function buildInsights(m: Match): Insight[] {
 
   const hOut = m.home.absences.filter((a) => isOut(a.status, a.reason)).length;
   const aOut = m.away.absences.filter((a) => isOut(a.status, a.reason)).length;
+  const highOf = (t: Match["home"]) => t.absences.filter((a) => isOut(a.status, a.reason) && a.impact === "High").length;
+  const hHigh = highOf(m.home);
+  const aHigh = highOf(m.away);
+  const impactKnown = [...m.home.absences, ...m.away.absences].some((a) => a.impact !== null && a.impact !== "Unknown");
   out.push({
     kind: "absence",
     text: !absencesKnown(m)
       ? "Injury and suspension news is not available yet for this match."
       : hOut + aOut === 0
         ? "No unavailable players are listed for either side."
-        : `Unavailable players: ${m.home.name} ${hOut}, ${m.away.name} ${aOut}.`
+        : impactKnown
+          ? hHigh + aHigh === 0
+            ? "No regular starters are listed as unavailable."
+            : `Regular starters unavailable: ${m.home.name} ${hHigh}, ${m.away.name} ${aHigh}.`
+          : `Unavailable players: ${m.home.name} ${hOut}, ${m.away.name} ${aOut}.`
   });
+
+  const hs = m.home.stability?.score;
+  const as = m.away.stability?.score;
+  if (hs !== undefined && as !== undefined) {
+    out.push({
+      kind: "stability",
+      text:
+        Math.abs(hs - as) >= 5
+          ? `${hs > as ? m.home.name : m.away.name} are the more settled side (stability ${Math.max(hs, as)} v ${Math.min(hs, as)}).`
+          : `Both sides are similarly settled (stability ${hs} and ${as}).`
+    });
+  }
 
   if (o) out.push({ kind: "goals", text: `The model gives both teams a ${o.btts}% chance to score.` });
   return out;

@@ -1,7 +1,26 @@
 export type Result = "W" | "D" | "L";
 export type MatchStatus = "UPCOMING" | "TODAY" | "LIVE" | "FT" | "OFF";
 
-export type Absence = { name: string; status: string; reason: string };
+export type Impact = "High" | "Medium" | "Low" | "Unknown";
+
+export type Absence = {
+  id: number;
+  name: string;
+  status: string;
+  reason: string;
+  impact: Impact | null; // null when not calculated (list pages)
+  started: number | null; // matches started out of the last `of`
+  of: number | null;
+};
+
+export type StabilityFactor = { key: string; label: string; weight: number; value: number; hint: string };
+export type TeamStability = {
+  score: number;
+  label: string;
+  factors: StabilityFactor[];
+  comparedWith: number; // earlier lineups the score is based on
+  changes: number; // changes to the starting eleven since the last match
+};
 
 export type TeamView = {
   id: number;
@@ -14,6 +33,7 @@ export type TeamView = {
   attack: number; // 0-10, 5 = league average
   defence: number; // 0-10, 5 = league average
   absences: Absence[];
+  stability: TeamStability | null;
 };
 
 export type OutlookView = {

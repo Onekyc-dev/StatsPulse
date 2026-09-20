@@ -6,7 +6,8 @@ const icons: Record<Insight["kind"], LucideIcon> = {
   xg: TrendingUp,
   form: Shield,
   absence: ShieldAlert,
-  goals: Target
+  goals: Target,
+  stability: Shield
 };
 
 export function InsightsCard({ match }: { match: Match }) {
