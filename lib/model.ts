@@ -1,6 +1,6 @@
 import { goalOutlook, type GoalOutlook } from "./poisson";
 
-export const MODEL_VERSION = "baseline-v0.1";
+export const MODEL_VERSION = "baseline-v0.2";
 
 /**
  * Baseline model: every team gets an attack and a defence strength from past results
@@ -9,7 +9,7 @@ export const MODEL_VERSION = "baseline-v0.1";
  * Newly promoted clubs have no top-flight history, so they start near average.
  */
 export type ModelParams = { halfLifeDays: number; priorGames: number };
-export const DEFAULT_PARAMS: ModelParams = { halfLifeDays: 240, priorGames: 6 };
+export const DEFAULT_PARAMS: ModelParams = { halfLifeDays: 365, priorGames: 6 };
 
 export type HistMatch = { homeId: number; awayId: number; homeGoals: number; awayGoals: number; date: string };
 export type TeamStrength = { att: number; def: number };

@@ -1,4 +1,4 @@
-import { dbSelect } from "./supabase";
+import { dbSelect, dbSelectAll } from "./supabase";
 import { bsd } from "./bsd";
 import { deriveStatus, formatKickoff } from "./format";
 import { attackRating, defenceRating, fitStrengths, type Strengths } from "./model";
@@ -6,7 +6,7 @@ import { slugify } from "./teamMeta";
 import type { Absence, H2H, Match, ProviderView, Result, TeamView } from "./types";
 
 const LEAGUE_ID = 1; // Premier League
-const HISTORY_FROM = "2025-08-01T00:00:00Z";
+const HISTORY_FROM = "2022-08-01T00:00:00Z";
 const CACHE = 60;
 
 type FixtureRow = {
@@ -131,9 +131,9 @@ async function loadContext(fixtureIds: number[], withRaw: boolean): Promise<Ctx>
   const idList = `in.(${fixtureIds.join(",") || "0"})`;
   const [teams, finished, absences, preds, lineups, provider] = await Promise.all([
     dbSelect<TeamRow>("teams", { select: "id,name,short,color", limit: "500" }, { revalidate: CACHE }),
-    dbSelect<FixtureRow>(
+    dbSelectAll<FixtureRow>(
       "fixtures",
-      { select: FIXTURE_COLS, league_id: `eq.${LEAGUE_ID}`, status: "eq.finished", kickoff: `gte.${HISTORY_FROM}`, limit: "1000" },
+      { select: FIXTURE_COLS, league_id: `eq.${LEAGUE_ID}`, status: "eq.finished", kickoff: `gte.${HISTORY_FROM}`, order: "kickoff.asc,id.asc" },
       { revalidate: CACHE }
     ),
     dbSelect<AbsenceRow>("absences", { select: "fixture_id,side,player_name,status,reason", fixture_id: idList, limit: "1000" }, { revalidate: CACHE }),
@@ -153,7 +153,8 @@ async function loadContext(fixtureIds: number[], withRaw: boolean): Promise<Ctx>
     finished,
     strengths: fitStrengths(hist, new Date()),
     absences,
-    preds: new Map(preds.map((p) => [p.fixture_id, p])),
+    // If a match has predictions from more than one model version, the newest one is shown.
+    preds: new Map([...preds].sort((a, b) => a.updated_at.localeCompare(b.updated_at)).map((p) => [p.fixture_id, p])),
     lineups: new Map(lineups.map((l) => [l.fixture_id, l])),
     providerRaw: new Map(provider.map((p) => [p.fixture_id, p.raw]))
   };
@@ -215,7 +216,10 @@ export type TrackRecord = { n: number; accuracy: number; brier: number };
 /** How well locked predictions did on matches that have finished. */
 export async function loadTrackRecord(): Promise<TrackRecord | null> {
   try {
-    const preds = await dbSelect<PredRow>("predictions", { select: "*", locked_at: "not.is.null", limit: "1000" }, { revalidate: CACHE });
+    const all = await dbSelect<PredRow>("predictions", { select: "*", locked_at: "not.is.null", limit: "1000" }, { revalidate: CACHE });
+    const newest = new Map<number, PredRow>();
+    for (const p of [...all].sort((a, b) => a.updated_at.localeCompare(b.updated_at))) newest.set(p.fixture_id, p);
+    const preds = [...newest.values()];
     if (preds.length === 0) return null;
     const fx = await dbSelect<FixtureRow>(
       "fixtures",

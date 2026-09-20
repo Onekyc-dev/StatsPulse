@@ -38,6 +38,17 @@ export async function dbSelect<T>(table: string, params: Params, opts: { revalid
   return (await res.json()) as T[];
 }
 
+/** Reads every row, in pages of 1000. The params must include a stable order, for example "kickoff.asc,id.asc". */
+export async function dbSelectAll<T>(table: string, params: Params, opts: { revalidate?: number } = {}): Promise<T[]> {
+  const out: T[] = [];
+  for (let offset = 0; offset < 50000; offset += 1000) {
+    const page = await dbSelect<T>(table, { ...params, limit: "1000", offset: String(offset) }, opts);
+    out.push(...page);
+    if (page.length < 1000) break;
+  }
+  return out;
+}
+
 /** Insert or update. Every row in one call must have the same keys. */
 export async function dbUpsert(table: string, rows: object[], onConflict: string): Promise<void> {
   for (let i = 0; i < rows.length; i += 500) {
