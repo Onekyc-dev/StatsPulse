@@ -6,6 +6,7 @@ import { Crest } from "@/components/Crest";
 import { FormPills } from "@/components/FormPills";
 import { niceTime } from "@/lib/format";
 import { extractXI } from "@/lib/lineups";
+import { absencesKnown } from "@/lib/outlook";
 import type { H2H, Match, TeamView } from "@/lib/types";
 
 const TABS = [
@@ -238,6 +239,15 @@ function statusText(status: string, reason: string): { label: string; tone: stri
 }
 
 function Absences({ match }: { match: Match }) {
+  if (!absencesKnown(match)) {
+    return (
+      <EmptyState
+        icon={Clock}
+        title="Injury news is not available yet"
+        text="Injuries and suspensions appear about two weeks before kickoff, when the data provider starts publishing lineup information."
+      />
+    );
+  }
   return (
     <div className="flex flex-col gap-5">
       {[match.home, match.away].map((t) => (

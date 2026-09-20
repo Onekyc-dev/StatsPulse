@@ -68,13 +68,15 @@ export function FixtureCard({ match }: { match: Match }) {
         <TeamSide team={match.away} />
       </div>
 
-      <div className="mt-5 border-t border-white/[0.06] pt-4">
-        {o ? (
-          <ProbBar home={o.homeWin} draw={o.draw} away={o.awayWin} homeLabel={match.home.short} awayLabel={match.away.short} />
-        ) : (
-          <p className="text-center text-[12px] text-white/40">Outlook appears within 30 days of kickoff.</p>
-        )}
-      </div>
+      {(o || match.status !== "FT") && (
+        <div className="mt-5 border-t border-white/[0.06] pt-4">
+          {o ? (
+            <ProbBar home={o.homeWin} draw={o.draw} away={o.awayWin} homeLabel={match.home.short} awayLabel={match.away.short} />
+          ) : (
+            <p className="text-center text-[12px] text-white/40">Outlook appears within 30 days of kickoff.</p>
+          )}
+        </div>
+      )}
     </Link>
   );
 }
