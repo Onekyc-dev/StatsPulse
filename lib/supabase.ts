@@ -62,6 +62,18 @@ export async function dbUpsert(table: string, rows: object[], onConflict: string
   }
 }
 
+/** Adds new rows (no merging). */
+export async function dbInsert(table: string, rows: object[]): Promise<void> {
+  if (rows.length === 0) return;
+  const res = await fetch(`${baseUrl()}/${table}`, {
+    method: "POST",
+    headers: authHeaders({ Prefer: "return=minimal" }),
+    body: JSON.stringify(rows),
+    cache: "no-store"
+  });
+  if (!res.ok) return fail(`insert ${table}`, res);
+}
+
 export async function dbDelete(table: string, params: Params): Promise<void> {
   const res = await fetch(`${baseUrl()}/${table}?${qs(params)}`, {
     method: "DELETE",

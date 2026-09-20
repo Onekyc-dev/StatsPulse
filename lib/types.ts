@@ -73,7 +73,10 @@ export type Match = {
   lineupRaw: unknown;
   ledger: LedgerView | null;
   provider: ProviderView;
+  timeline: TimelineEvent[];
 };
+
+export type TimelineEvent = { at: string; team: string; kind: string; text: string };
 
 export type H2H = {
   total: number;

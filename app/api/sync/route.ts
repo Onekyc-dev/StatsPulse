@@ -1,5 +1,6 @@
 import { bsd, bsdList, type BsdEvent } from "@/lib/bsd";
-import { dbDelete, dbPatch, dbSelect, dbSelectAll, dbUpsert } from "@/lib/supabase";
+import { dbDelete, dbInsert, dbPatch, dbSelect, dbSelectAll, dbUpsert } from "@/lib/supabase";
+import { parseTeamLineup } from "@/lib/lineups";
 import { DEFAULT_PARAMS, MODEL_VERSION, fitStrengths, predict, type ModelParams } from "@/lib/model";
 import { shortCode, teamColor } from "@/lib/teamMeta";
 
@@ -58,12 +59,54 @@ type LineupResp = {
 };
 type Fetched = { id: number; lu: LineupResp | null; pr: object | null };
 
+/** Compares new lineups with the stored ones and logs what changed, for the match timeline. */
+async function recordLineupChanges(fetched: Fetched[]): Promise<void> {
+  const withLineups = fetched.filter((f) => f.lu && f.lu.lineups);
+  if (withLineups.length === 0) return;
+  const old = await dbSelect<{ fixture_id: number; lineup_status: string; raw: unknown }>("lineups", {
+    select: "fixture_id,lineup_status,raw", fixture_id: `in.(${withLineups.map((f) => f.id).join(",")})`, limit: "200"
+  });
+  const oldById = new Map(old.map((o) => [o.fixture_id, o]));
+  const events: object[] = [];
+
+  for (const f of withLineups) {
+    const before = oldById.get(f.id);
+    const toStatus = f.lu?.lineup_status ?? "unavailable";
+    const fromStatus = before?.lineup_status ?? null;
+    for (const side of ["home", "away"] as const) {
+      const now = parseTeamLineup(f.lu?.lineups, side);
+      if (!now) continue;
+      const prev = before ? parseTeamLineup(before.raw, side) : null;
+      const base = { fixture_id: f.id, side, from_status: fromStatus, to_status: toStatus, formation: now.formation };
+      if (!prev) {
+        events.push({ ...base, kind: toStatus === "confirmed" ? "confirmed" : "predicted", players_in: [], players_out: [] });
+        continue;
+      }
+      const prevIds = new Set(prev.players.map((p) => p.id));
+      const nowIds = new Set(now.players.map((p) => p.id));
+      const playersIn = now.players.filter((p) => !prevIds.has(p.id)).map((p) => p.name);
+      const playersOut = prev.players.filter((p) => !nowIds.has(p.id)).map((p) => p.name);
+      const statusChanged = fromStatus !== toStatus;
+      if (playersIn.length === 0 && playersOut.length === 0 && !statusChanged && prev.formation === now.formation) continue;
+      events.push({
+        ...base,
+        kind: toStatus === "confirmed" && statusChanged ? "confirmed" : "changed",
+        players_in: playersIn,
+        players_out: playersOut
+      });
+    }
+  }
+  await dbInsert("lineup_events", events);
+}
+
 /**
  * Lineups, absences and (optionally) the provider's prediction for many matches.
  * Reads run in parallel, writes are batched into a few requests, and the work stops at the deadline
  * so the function never times out. Anything skipped is picked up on the next run.
  */
-async function enrichBatch(ids: number[], withPrediction: boolean, deadline: number, log: string[], label: string): Promise<void> {
+async function enrichBatch(
+  ids: number[], withPrediction: boolean, deadline: number, log: string[], label: string, trackChanges = false
+): Promise<void> {
   const fetched: Fetched[] = [];
   let skipped = 0;
   let failed = 0;
@@ -85,6 +128,7 @@ async function enrichBatch(ids: number[], withPrediction: boolean, deadline: num
   });
 
   const now = isoNow();
+  if (trackChanges) await recordLineupChanges(fetched);
   const lineupRows = fetched.flatMap((f) =>
     f.lu ? [{ fixture_id: f.id, lineup_status: f.lu.lineup_status ?? "unavailable", raw: f.lu.lineups ?? null, updated_at: now }] : []
   );
@@ -146,7 +190,12 @@ async function refreshPredictions(log: string[]): Promise<void> {
   if (rows.length > 0) await dbUpsert("predictions", rows, "fixture_id,model_version");
   log.push(`predictions written for ${rows.length} upcoming matches (from ${hist.length} finished matches)`);
 
-  // Lock: predictions for matches that have kicked off become permanent, stamped with kickoff time.
+  await lockPredictions(log);
+}
+
+/** Predictions for matches that have kicked off become permanent, stamped with the kickoff time. */
+async function lockPredictions(log: string[]): Promise<void> {
+  const now = new Date();
   const open = await dbSelect<{ fixture_id: number; model_version: string }>("predictions", {
     select: "fixture_id,model_version", locked_at: "is.null", limit: "1000"
   });
@@ -224,7 +273,41 @@ async function backtest() {
     ...score(allProbs[best].map((p, k) => p.map((v, c) => (1 - w) * v + w * average[k][c])))
   }));
 
+  // How often is the model right when it is confident? (This is what a "70% accurate" claim can honestly mean.)
+  const bp = allProbs[best];
+  const topOf = (p: number[]) => Math.max(...p);
+  const hit = (k: number) => bp[k].indexOf(topOf(bp[k])) === outcome(played[START + k]);
+  const bands = [0, 0.5, 0.55, 0.6, 0.65, 0.7].map((t) => {
+    const idx = bp.map((_, k) => k).filter((k) => topOf(bp[k]) >= t);
+    return {
+      top_probability_at_least_percent: Math.round(t * 100),
+      matches: idx.length,
+      share_of_all_matches_percent: Math.round((idx.length / bp.length) * 100),
+      accuracy_percent: idx.length ? Math.round((idx.filter(hit).length / idx.length) * 100) : null
+    };
+  });
+  const calibration = [[0.3, 0.4], [0.4, 0.5], [0.5, 0.6], [0.6, 0.7], [0.7, 1.01]].map(([lo, hi]) => {
+    const idx = bp.map((_, k) => k).filter((k) => topOf(bp[k]) >= lo && topOf(bp[k]) < hi);
+    return {
+      top_probability_between_percent: `${Math.round(lo * 100)}-${Math.min(100, Math.round(hi * 100))}`,
+      matches: idx.length,
+      average_stated_percent: idx.length ? Math.round((idx.reduce((s, k) => s + topOf(bp[k]), 0) / idx.length) * 100) : null,
+      actually_right_percent: idx.length ? Math.round((idx.filter(hit).length / idx.length) * 100) : null
+    };
+  });
+  // Double chance: pick the safest pair of outcomes (home or draw, draw or away, home or away).
+  const pairs = [[0, 1], [1, 2], [0, 2]];
+  let dcHits = 0;
+  bp.forEach((p, k) => {
+    const sums = pairs.map(([a, b]) => p[a] + p[b]);
+    const pick = pairs[sums.indexOf(Math.max(...sums))];
+    if (pick.includes(outcome(played[START + k]))) dcHits++;
+  });
+
   return {
+    double_chance_accuracy_percent: Math.round((dcHits / bp.length) * 100),
+    confidence_bands: bands,
+    calibration,
     matchesInDatabase: played.length,
     matchesTested: played.length - START,
     models,
@@ -252,7 +335,24 @@ export async function GET(req: Request) {
   const base = `/events/?league_id=${LEAGUE_ID}`;
 
   try {
-    if (mode === "backtest") {
+    if (mode === "near") {
+      // Runs every few minutes: refreshes scores and lineups only for matches about to start or just played.
+      const HOUR = 3600000;
+      const window = await bsdList<BsdEvent>(
+        `${base}&date_from=${ymd(new Date(now.getTime() - DAY))}&date_to=${ymd(new Date(now.getTime() + DAY))}`, 200
+      );
+      const mine = window.filter((e) => e.league_id === LEAGUE_ID);
+      const saved = await ingest(mine);
+      const active = mine.filter((e) => {
+        const t = new Date(e.event_date).getTime();
+        return t > now.getTime() - 3 * HOUR && t < now.getTime() + 3 * HOUR;
+      });
+      log.push(`saved ${saved} matches, ${active.length} within three hours of kickoff`);
+      if (active.length > 0) await enrichBatch(active.map((e) => e.id), false, deadline, log, "matches near kickoff", true);
+      await lockPredictions(log);
+      log.push(`finished in ${Math.round((Date.now() - started) / 1000)} seconds`);
+      return Response.json({ ok: true, mode, log });
+    } else if (mode === "backtest") {
       const result = await backtest();
       return Response.json({ ok: true, mode, result });
     } else if (mode === "backfill") {
@@ -289,7 +389,7 @@ export async function GET(req: Request) {
       const soon = upcoming
         .filter((e) => new Date(e.event_date).getTime() < now.getTime() + 14 * DAY)
         .sort((a, b) => a.event_date.localeCompare(b.event_date));
-      await enrichBatch([...live, ...soon].map((e) => e.id), true, deadline, log, "upcoming and live matches");
+      await enrichBatch([...live, ...soon].map((e) => e.id), true, deadline, log, "upcoming and live matches", true);
       const justPlayed = recent.filter((e) => new Date(e.event_date).getTime() > now.getTime() - 3 * DAY);
       await enrichBatch(justPlayed.map((e) => e.id), false, deadline, log, "just-played matches");
       await refreshPredictions(log);

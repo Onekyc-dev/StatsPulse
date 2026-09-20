@@ -5,7 +5,7 @@ import { attackRating, defenceRating, fitStrengths, type Strengths } from "./mod
 import { slugify } from "./teamMeta";
 import { parseTeamLineup, type TeamLineup } from "./lineups";
 import { absenceImpact, computeStability } from "./stability";
-import type { Absence, H2H, Match, ProviderView, Result, TeamView } from "./types";
+import type { Absence, H2H, Match, ProviderView, Result, TeamView, TimelineEvent } from "./types";
 
 const LEAGUE_ID = 1; // Premier League
 const HISTORY_FROM = "2022-08-01T00:00:00Z";
@@ -126,7 +126,8 @@ function buildMatch(f: FixtureRow, ctx: Ctx, now: Date): Match {
     lineupStatus: lu?.lineup_status ?? "unknown",
     lineupRaw: lu?.raw ?? null,
     ledger: p ? { modelVersion: p.model_version, createdAt: p.created_at, updatedAt: p.updated_at, lockedAt: p.locked_at } : null,
-    provider: ctx.providerRaw.has(f.id) ? providerView(ctx.providerRaw.get(f.id)) : null
+    provider: ctx.providerRaw.has(f.id) ? providerView(ctx.providerRaw.get(f.id)) : null,
+    timeline: []
   };
 }
 
@@ -187,9 +188,46 @@ export async function loadMatch(id: number): Promise<{ match: Match | null; h2h:
     const ctx = await loadContext([id], true);
     const match = buildMatch(rows[0], ctx, new Date());
     await addLineupIntelligence(match, rows[0], ctx);
+    match.timeline = await loadTimeline(match);
     return { match, h2h: await loadH2H(id), error: null };
   } catch (e) {
     return { match: null, h2h: null, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+type EventRow = {
+  side: "home" | "away"; kind: string; formation: string | null;
+  players_in: string[]; players_out: string[]; created_at: string;
+};
+
+function eventText(e: EventRow, team: string): string {
+  const inn = e.players_in.join(", ");
+  const out = e.players_out.join(", ");
+  const n = Math.max(e.players_in.length, e.players_out.length);
+  if (e.kind === "predicted") return `${team}: predicted XI published${e.formation ? ` (${e.formation})` : ""}.`;
+  if (e.kind === "confirmed") {
+    return n === 0
+      ? `${team}: confirmed XI announced, the same as the predicted XI.`
+      : `${team}: confirmed XI announced, ${n} ${n === 1 ? "change" : "changes"} from the predicted XI. In: ${inn}. Out: ${out}.`;
+  }
+  return n === 0
+    ? `${team}: formation changed${e.formation ? ` to ${e.formation}` : ""}.`
+    : `${team}: XI updated. In: ${inn}. Out: ${out}.`;
+}
+
+async function loadTimeline(match: Match): Promise<TimelineEvent[]> {
+  try {
+    const rows = await dbSelect<EventRow>(
+      "lineup_events",
+      { select: "side,kind,formation,players_in,players_out,created_at", fixture_id: `eq.${match.id}`, order: "created_at.desc", limit: "30" },
+      { revalidate: CACHE }
+    );
+    return rows.map((e) => {
+      const team = e.side === "home" ? match.home.name : match.away.name;
+      return { at: e.created_at, team, kind: e.kind, text: eventText(e, team) };
+    });
+  } catch {
+    return []; // the table may not exist yet
   }
 }
 

@@ -484,12 +484,38 @@ function LiveAndHistory({ match }: { match: Match }) {
 
       <section className="card p-5">
         <div className="flex items-center gap-2 text-sm font-semibold">
+          <Clock size={16} className="text-pulse-500" />
+          Intelligence timeline
+        </div>
+        {match.timeline.length === 0 ? (
+          <p className="mt-3 text-sm leading-relaxed text-white/60">
+            No lineup changes recorded yet. When lineups are published or confirmed, each change is logged here automatically.
+          </p>
+        ) : (
+          <ol className="mt-4 flex flex-col gap-3">
+            {match.timeline.map((e, i) => (
+              <li key={i} className="flex gap-3">
+                <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-pulse-500" />
+                <div>
+                  <div className="text-[11px] text-white/40">{niceTime(e.at)}</div>
+                  <p className="text-[13.5px] leading-snug text-white/75">{e.text}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
+        <p className="mt-4 text-[12px] leading-relaxed text-white/40">
+          The prediction model does not use lineups yet, so these changes do not move the probabilities. That is planned once there is enough lineup history to test it.
+        </p>
+      </section>
+
+      <section className="card p-5">
+        <div className="flex items-center gap-2 text-sm font-semibold">
           <Activity size={16} className="text-pulse-500" />
-          Live intelligence and timeline
+          Live intelligence
         </div>
         <p className="mt-3 text-sm leading-relaxed text-white/60">
-          Live scores, shots, momentum and a timeline showing how lineups, goals and cards moved the outlook are planned. They need
-          faster data updates than are set up today.
+          Scores update automatically during matches. Shots, momentum and live win probabilities are planned and need faster data than is set up today.
         </p>
       </section>
     </div>
