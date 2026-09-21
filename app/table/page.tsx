@@ -3,8 +3,9 @@ import Link from "next/link";
 import { DataNotice } from "@/components/DataNotice";
 import { LeagueBadge } from "@/components/LeagueBadge";
 import { LeagueNav } from "@/components/LeagueNav";
-import { LeagueTable, type Kind, type TableRowView } from "@/components/table/LeagueTable";
+import { LeagueTable, type TableRowView, type XgRowView, type ZoneView } from "@/components/table/LeagueTable";
 import { loadLeague, matchPath, shortDate } from "@/lib/league";
+import { loadOfficialTable } from "@/lib/officialTable";
 import { buildTable, seasonList, snapshot, upcomingFor, type Row } from "@/lib/standings";
 
 export const metadata: Metadata = { title: "Premier League table" };
@@ -12,7 +13,7 @@ export const revalidate = 60;
 
 type Props = { searchParams: Promise<{ season?: string }> };
 
-const KINDS: Kind[] = ["all", "home", "away", "form"];
+const KINDS = ["all", "home", "away", "form"] as const;
 
 export default async function TablePage({ searchParams }: Props) {
   const { season } = await searchParams;
@@ -55,8 +56,45 @@ export default async function TablePage({ searchParams }: Props) {
     };
   };
 
-  const tables = Object.fromEntries(KINDS.map((k) => [k, buildTable(data.fixtures, selected.id, k, names).map(toView)])) as Record<Kind, TableRowView[]>;
+  const tables = Object.fromEntries(KINDS.map((k) => [k, buildTable(data.fixtures, selected.id, k, names).map(toView)])) as Record<(typeof KINDS)[number], TableRowView[]>;
   const overall = tables.all;
+
+  // The provider's official table gives the real qualification and relegation zones and expected goals.
+  const official = await loadOfficialTable(selected.id);
+  const zones: ZoneView[] =
+    official && official.zones.length > 0
+      ? official.zones
+      : [
+          { key: "cl", label: "Top four", type: "qualification", from: 1, to: 4 },
+          { key: "rel", label: "Relegation", type: "relegation", from: Math.max(1, overall.length - 2), to: overall.length }
+        ];
+  const xg: XgRowView[] | null = official
+    ? official.rows
+        .filter((r) => r.xgd !== null)
+        .map((r) => {
+          const t = data.teams.get(r.teamId);
+          return {
+            teamId: r.teamId,
+            name: t?.name ?? `Team ${r.teamId}`,
+            short: t?.short ?? "???",
+            color: t?.color ?? "#5b6b73",
+            played: r.xgGames ?? r.played,
+            xgf: r.xgf,
+            xga: r.xga,
+            xgd: r.xgd as number,
+            gd: r.gd
+          };
+        })
+        .sort((a, b) => b.xgd - a.xgd)
+    : null;
+  // If the official points differ from ours (for example a points deduction), say so.
+  const mismatches = official
+    ? official.rows
+        .map((o) => ({ o, ours: overall.find((r) => r.teamId === o.teamId) }))
+        .filter((m) => m.ours && (m.ours.points !== m.o.points || m.ours.played !== m.o.played))
+        .slice(0, 4)
+        .map((m) => `${m.ours?.name} (${m.ours?.points} points from ${m.ours?.played}, official ${m.o.points} from ${m.o.played})`)
+    : [];
   const snap = snapshot(data.fixtures, selected.id);
   const fixtureName = (f: { homeId: number; awayId: number }) => `${data.teams.get(f.homeId)?.name ?? "Home"} v ${data.teams.get(f.awayId)?.name ?? "Away"}`;
   const link = (f: { fixtureId: number; homeId: number; awayId: number }) => matchPath({ id: f.fixtureId, home_team_id: f.homeId, away_team_id: f.awayId }, data.teams);
@@ -97,11 +135,16 @@ export default async function TablePage({ searchParams }: Props) {
       )}
 
       <div className="mt-5">
-        <LeagueTable tables={tables} showNext={isCurrent} />
+        <LeagueTable tables={tables} xg={xg} zones={zones} showNext={isCurrent} />
         <p className="mt-3 text-[11.5px] leading-relaxed text-white/35">
-          Calculated from the results StatPulse has stored, ordered by points, then goal difference, then goals scored. It updates as results are recorded. Official tables can
-          differ if points are deducted. European places vary from season to season, so only the top four and the relegation places are marked.
+          Calculated from the results StatPulse has stored, ordered by points, then goal difference, then goals scored. It updates as results are recorded.
+          {official ? " Zones and expected goals come from the data provider." : " Official tables can differ if points are deducted."}
         </p>
+        {mismatches.length > 0 && (
+          <p className="mt-2 rounded-xl border border-draw/25 bg-draw/[0.07] p-3 text-[12px] leading-relaxed text-draw">
+            The official table differs for: {mismatches.join("; ")}. This can happen while matches are in progress, or when points are deducted.
+          </p>
+        )}
       </div>
 
       {snap && (

@@ -15,6 +15,23 @@ function authHeaders(extra: Record<string, string> = {}): Record<string, string>
   return h;
 }
 
+/**
+ * Sends a request and retries brief platform hiccups (for example "JWT issued at future" from a clock mismatch
+ * between servers, rate limits, or server errors). A genuine authentication failure is not retried.
+ */
+async function request(url: string, init: Init): Promise<Response> {
+  let res = await fetch(url, init);
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const transient = res.status >= 500 || res.status === 429 || (res.status === 401 && (await res.clone().text()).includes("future"));
+    if (!transient) break;
+    await new Promise((r) => setTimeout(r, 300 * attempt));
+    const retry: Init = { ...init, cache: "no-store" };
+    delete retry.next;
+    res = await fetch(url, retry);
+  }
+  return res;
+}
+
 function qs(params: Params): string {
   const sp = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
@@ -33,7 +50,7 @@ export async function dbSelect<T>(table: string, params: Params, opts: { revalid
   const init: Init = { headers: authHeaders() };
   if (opts.revalidate === undefined) init.cache = "no-store";
   else init.next = { revalidate: opts.revalidate };
-  const res = await fetch(`${baseUrl()}/${table}?${qs(params)}`, init);
+  const res = await request(`${baseUrl()}/${table}?${qs(params)}`, init);
   if (!res.ok) return fail(`select ${table}`, res);
   return (await res.json()) as T[];
 }
@@ -52,7 +69,7 @@ export async function dbSelectAll<T>(table: string, params: Params, opts: { reva
 /** Insert or update. Every row in one call must have the same keys. */
 export async function dbUpsert(table: string, rows: object[], onConflict: string): Promise<void> {
   for (let i = 0; i < rows.length; i += 500) {
-    const res = await fetch(`${baseUrl()}/${table}?on_conflict=${onConflict}`, {
+    const res = await request(`${baseUrl()}/${table}?on_conflict=${onConflict}`, {
       method: "POST",
       headers: authHeaders({ Prefer: "resolution=merge-duplicates,return=minimal" }),
       body: JSON.stringify(rows.slice(i, i + 500)),
@@ -65,7 +82,7 @@ export async function dbUpsert(table: string, rows: object[], onConflict: string
 /** Adds new rows (no merging). */
 export async function dbInsert(table: string, rows: object[]): Promise<void> {
   if (rows.length === 0) return;
-  const res = await fetch(`${baseUrl()}/${table}`, {
+  const res = await request(`${baseUrl()}/${table}`, {
     method: "POST",
     headers: authHeaders({ Prefer: "return=minimal" }),
     body: JSON.stringify(rows),
@@ -75,7 +92,7 @@ export async function dbInsert(table: string, rows: object[]): Promise<void> {
 }
 
 export async function dbDelete(table: string, params: Params): Promise<void> {
-  const res = await fetch(`${baseUrl()}/${table}?${qs(params)}`, {
+  const res = await request(`${baseUrl()}/${table}?${qs(params)}`, {
     method: "DELETE",
     headers: authHeaders({ Prefer: "return=minimal" }),
     cache: "no-store"
@@ -84,7 +101,7 @@ export async function dbDelete(table: string, params: Params): Promise<void> {
 }
 
 export async function dbPatch(table: string, params: Params, body: object): Promise<void> {
-  const res = await fetch(`${baseUrl()}/${table}?${qs(params)}`, {
+  const res = await request(`${baseUrl()}/${table}?${qs(params)}`, {
     method: "PATCH",
     headers: authHeaders({ Prefer: "return=minimal" }),
     body: JSON.stringify(body),

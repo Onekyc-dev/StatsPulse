@@ -3,7 +3,15 @@ import { num, rowsOf } from "./live";
 
 export type LeaderStat = "goals" | "assists" | "yellow" | "red";
 export type Leader = { rank: number; playerId: number | null; name: string; teamId: number | null; team: string; value: number };
-export type SquadPlayer = { id: number | null; name: string; group: "Goalkeepers" | "Defenders" | "Midfielders" | "Forwards" | "Other"; number: number | null };
+export type SquadPlayer = {
+  id: number | null;
+  name: string;
+  group: "Goalkeepers" | "Defenders" | "Midfielders" | "Forwards" | "Other";
+  number: number | null;
+  availability: string | null; // "available", "injured", ...
+  injury: string | null;
+  returns: string | null; // expected return date
+};
 
 type Json = Record<string, unknown>;
 const isObj = (v: unknown): v is Json => !!v && typeof v === "object" && !Array.isArray(v);
@@ -13,8 +21,8 @@ const str = (v: unknown): string => (typeof v === "string" ? v : "");
 const SLUGS: Record<LeaderStat, string[]> = {
   goals: ["scorers"],
   assists: ["assists"],
-  yellow: ["yellow-cards", "yellow_cards", "yellowcards"],
-  red: ["red-cards", "red_cards", "redcards"]
+  yellow: ["yellow_cards", "yellows", "yellow", "cards", "yellow-cards"],
+  red: ["red_cards", "reds", "red", "red-cards"]
 };
 
 function rows(data: unknown): unknown[] {
@@ -85,7 +93,10 @@ export function mapSquadPlayer(raw: unknown): SquadPlayer | null {
     id: firstNum(player.id, raw.player_id),
     name,
     group: groupOf(str(player.position) || str(raw.position)),
-    number: firstNum(player.jersey_number, raw.jersey_number, player.shirt_number, raw.number)
+    number: firstNum(player.jersey_number, raw.jersey_number, player.shirt_number, raw.number),
+    availability: str(player.availability) || null,
+    injury: str(player.injury_type) || null,
+    returns: str(player.injury_expected_return) || null
   };
 }
 

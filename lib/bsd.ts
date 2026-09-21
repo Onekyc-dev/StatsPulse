@@ -42,7 +42,7 @@ export async function bsd<T>(path: string, opts: { revalidate?: number } = {}): 
       await sleep(800 * (attempt + 1));
       continue;
     }
-    if (!res.ok) throw new Error(`BSD ${path} failed: ${res.status}`);
+    if (!res.ok) throw new Error(`BSD ${path} failed: ${res.status} ${(await res.text()).slice(0, 240)}`);
     return (await res.json()) as T;
   }
   throw new Error(`BSD ${path} kept failing`);

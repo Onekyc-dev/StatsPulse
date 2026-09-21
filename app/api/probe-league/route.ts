@@ -15,15 +15,22 @@ export async function GET(req: Request) {
     "/leagues/1/standings/?season_id=1058",
     "/leagues/1/top/scorers/",
     "/leagues/1/top/assists/",
-    "/leagues/1/top/yellow-cards/",
-    "/leagues/1/top/red-cards/",
-    "/teams/13/squad/"
+    "/leagues/1/top/yellow_cards/",
+    "/leagues/1/top/yellows/",
+    "/leagues/1/top/cards/",
+    "/leagues/1/top/red_cards/",
+    "/leagues/1/top/reds/",
+    "/leagues/1/top/fouls/",
+    "/players/852/",
+    "/players/852/stats/?season_id=1058&limit=2",
+    "/players/852/career/",
+    "/players/852/transfers/"
   ];
   const out: string[] = ["PROVIDER LEAGUE PROBE", "====================="];
   for (const p of paths) {
     try {
       const data = await bsd<unknown>(p);
-      out.push("", `GET ${p}`, data === null ? "-> not found (404)" : JSON.stringify(data).slice(0, 900));
+      out.push("", `GET ${p}`, data === null ? "-> not found (404)" : JSON.stringify(data).slice(0, 700));
     } catch (e) {
       out.push("", `GET ${p}`, `-> error: ${e instanceof Error ? e.message : String(e)}`);
     }

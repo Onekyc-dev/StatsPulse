@@ -214,7 +214,7 @@ export default async function TeamPage({ params }: Props) {
           <h2 className="section-title">Squad</h2>
           <div className="mt-3 flex flex-col gap-5">
             {GROUPS.map((g) => {
-              const players = squad.filter((p) => p.group === g);
+              const players = squad.filter((p) => p.group === g).sort((a, b) => (a.number ?? 999) - (b.number ?? 999));
               if (players.length === 0) return null;
               return (
                 <div key={g}>
@@ -224,7 +224,20 @@ export default async function TeamPage({ params }: Props) {
                       <li key={`${p.id ?? p.name}-${i}`} className="flex items-center gap-3">
                         <PlayerAvatar id={p.id} name={p.name} size={34} />
                         <span className="w-5 shrink-0 text-right text-[12px] font-bold text-white/35 tnum">{p.number ?? ""}</span>
-                        <span className="truncate text-[13.5px]">{p.name}</span>
+                        {p.id !== null ? (
+                          <Link href={`/player/${p.id}`} className="min-w-0 flex-1 truncate text-[13.5px] hover:text-pulse-400">
+                            {p.name}
+                          </Link>
+                        ) : (
+                          <span className="min-w-0 flex-1 truncate text-[13.5px]">{p.name}</span>
+                        )}
+                        {p.availability && p.availability !== "available" && (
+                          <span className="shrink-0 rounded-md bg-loss/15 px-2 py-0.5 text-[10.5px] font-bold capitalize text-loss">
+                            {p.availability}
+                            {p.injury ? `, ${p.injury.toLowerCase()}` : ""}
+                            {p.returns && !Number.isNaN(new Date(p.returns).getTime()) ? `, back ${shortDate(p.returns)}` : ""}
+                          </span>
+                        )}
                       </li>
                     ))}
                   </ul>

@@ -2,6 +2,7 @@ import { bsd, bsdList, type BsdEvent } from "@/lib/bsd";
 import { dbDelete, dbInsert, dbPatch, dbSelect, dbSelectAll, dbUpsert } from "@/lib/supabase";
 import { parseTeamLineup } from "@/lib/lineups";
 import { TIERS } from "@/lib/tiers";
+import { currentSeasonId, refreshPlayerStats } from "@/lib/playerStats";
 import { DEFAULT_PARAMS, MODEL_VERSION, fitStrengths, predict, type ModelParams } from "@/lib/model";
 import { shortCode, teamColor } from "@/lib/teamMeta";
 
@@ -364,7 +365,14 @@ export async function GET(req: Request) {
   const base = `/events/?league_id=${LEAGUE_ID}`;
 
   try {
-    if (mode === "near") {
+    if (mode === "players") {
+      // Manual trigger: open the link a few times to collect everyone's statistics faster.
+      const sid = await currentSeasonId();
+      if (sid === null) throw new Error("no finished matches stored yet");
+      await refreshPlayerStats(sid, 40, deadline, log);
+      log.push(`finished in ${Math.round((Date.now() - started) / 1000)} seconds`);
+      return Response.json({ ok: true, mode, log });
+    } else if (mode === "near") {
       // Runs every few minutes: refreshes scores and lineups only for matches about to start or just played.
       const HOUR = 3600000;
       const window = await bsdList<BsdEvent>(
@@ -379,6 +387,15 @@ export async function GET(req: Request) {
       log.push(`saved ${saved} matches, ${active.length} within three hours of kickoff`);
       if (active.length > 0) await enrichBatch(active.map((e) => e.id), false, deadline, log, "matches near kickoff", true);
       await lockPredictions(log);
+      // When no match is close, use the quiet time to collect player statistics for the comparison feature.
+      if (active.length === 0) {
+        try {
+          const sid = await currentSeasonId();
+          if (sid !== null) await refreshPlayerStats(sid, 20, deadline, log);
+        } catch (e) {
+          log.push(`player collection skipped: ${e instanceof Error ? e.message.slice(0, 120) : "error"}`);
+        }
+      }
       log.push(`finished in ${Math.round((Date.now() - started) / 1000)} seconds`);
       return Response.json({ ok: true, mode, log });
     } else if (mode === "backtest") {

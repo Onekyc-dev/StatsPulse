@@ -49,3 +49,13 @@ export function matchPath(fx: { id: number; home_team_id: number; away_team_id: 
 
 const DAY_FMT = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", weekday: "short", day: "numeric", month: "short" });
 export const shortDate = (iso: string): string => DAY_FMT.format(new Date(iso));
+
+/** One club's name, code and colour. */
+export async function loadTeam(id: number): Promise<TeamRow | null> {
+  try {
+    const rows = await dbSelect<TeamRow>("teams", { select: "id,name,short,color", id: `eq.${id}`, limit: "1" }, { revalidate: 300 });
+    return rows[0] ?? null;
+  } catch {
+    return null;
+  }
+}

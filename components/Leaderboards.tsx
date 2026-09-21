@@ -47,7 +47,13 @@ export function Leaderboards({ lists, teamColors }: { lists: Record<LeaderStat, 
                 <span className="w-6 shrink-0 text-center text-[13px] font-semibold text-white/45 tnum">{p.rank}</span>
                 <PlayerAvatar id={p.playerId} name={p.name} size={38} />
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[14px] font-semibold">{p.name}</div>
+                  {p.playerId !== null ? (
+                    <Link href={`/player/${p.playerId}`} className="block truncate text-[14px] font-semibold hover:text-pulse-400">
+                      {p.name}
+                    </Link>
+                  ) : (
+                    <div className="truncate text-[14px] font-semibold">{p.name}</div>
+                  )}
                   {p.team && (
                     <Link href={p.teamId !== null ? `/team/${p.teamId}` : "#"} className="mt-0.5 flex items-center gap-1.5 text-[12px] text-white/50">
                       {p.teamId !== null && t && <Crest short={t.short} color={t.color} size={14} teamId={p.teamId} name={p.team} />}
