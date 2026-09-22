@@ -1,6 +1,5 @@
-import { bsd } from "./bsd";
 import { loadSquad } from "./leaders";
-import { aggregateMatches } from "./players";
+import { fetchWindowAggregate, fiveYearsAgo } from "./players";
 import { groupOf, type PeerRow } from "./peers";
 import { dbSelect, dbSelectAll, dbUpsert } from "./supabase";
 
@@ -75,8 +74,9 @@ export async function refreshPlayerStats(seasonId: number, limit: number, deadli
     }
   }
 
-  // 2. Statistics for players never collected, or older than a day.
-  const cutoff = new Date(Date.now() - 24 * 3600000).toISOString();
+  // 2. Five-year averages for players never collected, or older than a week.
+  const cutoff = new Date(Date.now() - 7 * 24 * 3600000).toISOString();
+  const from = fiveYearsAgo();
   const due = await dbSelect<{ player_id: number; team_id: number | null; name: string; position: string | null }>("player_season", {
     select: "player_id,team_id,name,position",
     season_id: `eq.${seasonId}`,
@@ -85,11 +85,10 @@ export async function refreshPlayerStats(seasonId: number, limit: number, deadli
     limit: String(limit)
   });
   const done: object[] = [];
-  await pool(due, 5, async (p) => {
+  await pool(due, 6, async (p) => {
     if (Date.now() > deadline) return;
     try {
-      const data = await bsd<unknown>(`/players/${p.player_id}/stats/?season_id=${seasonId}&limit=200`);
-      const agg = aggregateMatches(data ?? []);
+      const agg = (await fetchWindowAggregate(p.player_id, from, { fresh: true })) ?? { matches: 0, minutes: 0, per90: {} };
       done.push({
         player_id: p.player_id, season_id: seasonId, team_id: p.team_id, name: p.name, position: p.position,
         minutes: Math.round(agg.minutes), matches: agg.matches, per90: agg.per90, stats_at: new Date().toISOString(), updated_at: now

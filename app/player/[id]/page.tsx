@@ -5,10 +5,10 @@ import { ChevronLeft } from "lucide-react";
 import { Crest } from "@/components/Crest";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { loadSquad } from "@/lib/leaders";
-import { loadTeam, shortDate } from "@/lib/league";
+import { loadTeam } from "@/lib/league";
 import { assess, groupOf, GROUP_NAME } from "@/lib/peers";
 import { currentSeasonId, loadPeers } from "@/lib/playerStats";
-import { humanize, loadCareer, loadPlayerMatches, loadPlayerProfile, loadTransfers, type CareerRow } from "@/lib/players";
+import { fetchWindowAggregate, fiveYearsAgo, humanize, loadCareer, loadPlayerMatches, loadPlayerProfile, loadTransfers, longDate, type CareerRow } from "@/lib/players";
 
 export const revalidate = 300;
 
@@ -50,19 +50,22 @@ export default async function PlayerPage({ params }: Props) {
   const [profile, career, transfers, seasonId] = await Promise.all([loadPlayerProfile(id), loadCareer(id), loadTransfers(id), currentSeasonId(300)]);
   if (!profile) notFound();
 
-  const [agg, peers, squad, team] = await Promise.all([
+  const [agg, fiveYear, peers, squad, team] = await Promise.all([
     seasonId !== null ? loadPlayerMatches(id, seasonId) : Promise.resolve(null),
+    fetchWindowAggregate(id, fiveYearsAgo()),
     seasonId !== null ? loadPeers(seasonId) : Promise.resolve([]),
     profile.teamId !== null ? loadSquad(profile.teamId) : Promise.resolve(null),
     profile.teamId !== null ? loadTeam(profile.teamId) : Promise.resolve(null)
   ]);
 
   const group = groupOf(profile.position);
-  const me = squad?.find((p) => p.id === id);
-  const availability = me?.availability ?? null;
+  const availability = profile.availability;
   const missing = availability !== null && availability !== "" && availability !== "available";
-  const assessment = agg ? assess({ group, minutes: agg.minutes, per90: agg.per90 as Record<string, number> }, peers, id) : null;
+  const compareAgg = fiveYear && fiveYear.minutes >= 900 ? fiveYear : agg;
+  const usedFiveYear = !!fiveYear && fiveYear.minutes >= 900;
+  const assessment = compareAgg ? assess({ group, minutes: compareAgg.minutes, per90: compareAgg.per90 as Record<string, number> }, peers, id) : null;
   const positionLabel = POSITION_NAME[profile.position.charAt(0).toUpperCase()] ?? profile.position;
+  const squadEntry = squad?.find((p) => p.id === id);
   const seasonRows = PER90.filter((d) => agg && agg.per90[d.key as keyof typeof agg.per90] !== undefined);
 
   const facts: { label: string; value: string }[] = [
@@ -72,12 +75,14 @@ export default async function PlayerPage({ params }: Props) {
     { label: "Preferred foot", value: profile.foot ?? "" },
     { label: "Shirt number", value: profile.number !== null ? String(profile.number) : "" },
     { label: "Market value", value: profile.marketValue ?? "" },
-    { label: "Contract until", value: profile.contractEnd ? (Number.isNaN(new Date(profile.contractEnd).getTime()) ? profile.contractEnd : shortDate(profile.contractEnd)) : "" }
+    { label: "Contract until", value: longDate(profile.contractEnd) },
+    { label: "Provider rating", value: profile.rating !== null ? `${profile.rating} / 100` : "" }
   ].filter((f) => f.value);
 
-  const totals = career.length >= 3
-    ? career.reduce((t, r) => ({ matches: t.matches + (r.matches ?? 0), goals: t.goals + (r.goals ?? 0), assists: t.assists + (r.assists ?? 0) }), { matches: 0, goals: 0, assists: 0 })
-    : null;
+  const totals =
+    career.length >= 3
+      ? career.reduce((t, r) => ({ matches: t.matches + (r.matches ?? 0), goals: t.goals + (r.goals ?? 0), assists: t.assists + (r.assists ?? 0) }), { matches: 0, goals: 0, assists: 0 })
+      : null;
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-5 sm:px-6 lg:px-8">
@@ -116,14 +121,14 @@ export default async function PlayerPage({ params }: Props) {
 
       <section className="card mt-5 p-5">
         <h2 className="section-title">Availability</h2>
-        {!squad || !me ? (
+        {availability === null || availability === "" ? (
           <p className="mt-3 text-sm text-white/55">Availability is not published for this player.</p>
         ) : missing ? (
           <div className="mt-3">
             <span className="rounded-md bg-loss/15 px-2.5 py-1 text-[12px] font-bold capitalize text-loss">{availability}</span>
             <p className="mt-3 text-[14px] leading-relaxed text-white/75">
-              {me.injury ? `${me.injury}. ` : ""}
-              {me.returns && !Number.isNaN(new Date(me.returns).getTime()) ? `Expected back around ${shortDate(me.returns)}.` : "No return date has been published."}
+              {profile.injury ? `${profile.injury}. ` : ""}
+              {profile.returns ? `Expected back around ${longDate(profile.returns)}.` : "No return date has been published."}
             </p>
           </div>
         ) : (
@@ -133,6 +138,9 @@ export default async function PlayerPage({ params }: Props) {
               This means the player is not currently listed as missing from team news. It is not a guarantee of full fitness.
             </p>
           </div>
+        )}
+        {profile.injuryRisk && !["not specifically", "unknown", ""].includes(profile.injuryRisk.toLowerCase()) && (
+          <p className="mt-3 text-[12.5px] leading-relaxed text-white/50">Injury risk noted by the data provider: {profile.injuryRisk}.</p>
         )}
       </section>
 
@@ -178,7 +186,7 @@ export default async function PlayerPage({ params }: Props) {
       <section className="card mt-5 p-5">
         <h2 className="section-title">Strengths and weaknesses</h2>
         {!assessment ? (
-          <p className="mt-3 text-sm leading-relaxed text-white/55">Season statistics are not available for this player yet.</p>
+          <p className="mt-3 text-sm leading-relaxed text-white/55">Statistics are not available for this player yet.</p>
         ) : (
           <>
             {(assessment.strengths.length > 0 || assessment.weaknesses.length > 0) && (
@@ -211,12 +219,42 @@ export default async function PlayerPage({ params }: Props) {
             )}
             {assessment.note && <p className="mt-3 text-sm leading-relaxed text-white/55">{assessment.note}</p>}
             <p className="mt-4 text-[11.5px] leading-relaxed text-white/35">
-              Worked out from this season&apos;s per-90 statistics, compared with {assessment.peers > 0 ? `${assessment.peers} other Premier League ${group ? GROUP_NAME[group] : "players"}` : "other players in the same position"}.
-              Early in a season, small samples can mislead. This is a statistical view, not a scouting report.
+              Worked out from average per-90 statistics {usedFiveYear ? "over the last five years" : "this season (five years of history is not yet available for this player)"}, compared with{" "}
+              {assessment.peers > 0 ? `${assessment.peers} other current Premier League ${group ? GROUP_NAME[group] : "players"}` : "other players in the same position"}. This is a
+              statistical view, not a scouting report.
             </p>
           </>
         )}
       </section>
+
+      {(profile.providerStrengths.length > 0 || profile.providerWeaknesses.length > 0) && (
+        <section className="card mt-5 p-5">
+          <h2 className="section-title">Provider notes</h2>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            {profile.providerStrengths.length > 0 && (
+              <div>
+                <div className="text-[12px] font-semibold text-win">Strengths</div>
+                <ul className="mt-2 flex flex-col gap-1.5 text-[13.5px] text-white/75">
+                  {profile.providerStrengths.map((s, i) => (
+                    <li key={i}>{s}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {profile.providerWeaknesses.length > 0 && (
+              <div>
+                <div className="text-[12px] font-semibold text-loss">Weaknesses</div>
+                <ul className="mt-2 flex flex-col gap-1.5 text-[13.5px] text-white/75">
+                  {profile.providerWeaknesses.map((s, i) => (
+                    <li key={i}>{s}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+          {profile.potential && <p className="mt-3 text-[12.5px] text-white/50">Potential: {profile.potential}</p>}
+        </section>
+      )}
 
       {profile.skills.length > 0 && (
         <section className="card mt-5 p-5">
@@ -247,7 +285,8 @@ export default async function PlayerPage({ params }: Props) {
               <thead>
                 <tr className="text-[11px] font-semibold text-white/40">
                   <th className="px-3 py-2.5 pl-5 text-left">Season</th>
-                  <th className="px-2 py-2.5 text-left">Competition</th>
+                  <th className="px-2 py-2.5 text-left">Club</th>
+                  <th className="hidden px-2 py-2.5 text-left sm:table-cell">Competition</th>
                   <th className="px-2 py-2.5 text-center">MP</th>
                   <th className="px-2 py-2.5 text-center">G</th>
                   <th className="px-2 py-2.5 pr-5 text-center">A</th>
@@ -259,8 +298,9 @@ export default async function PlayerPage({ params }: Props) {
                     <td className="whitespace-nowrap px-3 py-2.5 pl-5 text-white/70">{r.season}</td>
                     <td className="px-2 py-2.5">
                       <div className="font-semibold">{r.club || "-"}</div>
-                      <div className="text-[11.5px] text-white/45">{r.competition}</div>
+                      <div className="text-[11.5px] text-white/45 sm:hidden">{r.competition}</div>
                     </td>
+                    <td className="hidden px-2 py-2.5 text-white/60 sm:table-cell">{r.competition}</td>
                     <td className="px-2 text-center text-white/70">{dash(r.matches)}</td>
                     <td className="px-2 text-center text-white/70">{dash(r.goals)}</td>
                     <td className="px-2 pr-5 text-center text-white/70">{dash(r.assists)}</td>
@@ -268,7 +308,7 @@ export default async function PlayerPage({ params }: Props) {
                 ))}
                 {totals && (
                   <tr className="border-t border-white/[0.12] font-semibold">
-                    <td className="px-3 py-3 pl-5" colSpan={2}>
+                    <td className="px-3 py-3 pl-5" colSpan={3}>
                       Career total
                     </td>
                     <td className="px-2 text-center">{totals.matches}</td>
@@ -288,7 +328,7 @@ export default async function PlayerPage({ params }: Props) {
           <ul className="mt-3 flex flex-col">
             {transfers.map((t, i) => (
               <li key={`${t.date}-${i}`} className="flex items-start gap-3 border-t border-white/[0.05] py-3 text-[13.5px] first:border-t-0">
-                <span className="w-20 shrink-0 text-[12px] text-white/45">{t.date ? (Number.isNaN(new Date(t.date).getTime()) ? t.date : shortDate(t.date)) : ""}</span>
+                <span className="w-24 shrink-0 text-[12px] text-white/45">{longDate(t.date)}</span>
                 <span className="min-w-0 flex-1">
                   {t.from || "-"} <span className="text-white/35">to</span> <span className="font-semibold">{t.to || "-"}</span>
                 </span>
@@ -299,7 +339,10 @@ export default async function PlayerPage({ params }: Props) {
         </section>
       )}
 
-      <p className="mt-4 text-[11.5px] leading-relaxed text-white/35">Player photos are shown only to identify players. Data comes from the data provider and refreshes every few minutes to hours.</p>
+      {squadEntry === undefined && !team && (
+        <p className="mt-4 text-[11.5px] leading-relaxed text-white/35">This player&apos;s current club could not be confirmed.</p>
+      )}
+      <p className="mt-4 text-[11.5px] leading-relaxed text-white/35">Player photos are shown only to identify players. Data comes from the data provider and refreshes from every few minutes to weekly.</p>
     </div>
   );
 }

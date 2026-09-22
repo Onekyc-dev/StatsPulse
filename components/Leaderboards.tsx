@@ -10,7 +10,8 @@ const TABS: { key: LeaderStat; label: string; unit: string }[] = [
   { key: "goals", label: "Goals", unit: "goals" },
   { key: "assists", label: "Assists", unit: "assists" },
   { key: "yellow", label: "Yellow cards", unit: "yellow cards" },
-  { key: "red", label: "Red cards", unit: "red cards" }
+  { key: "red", label: "Red cards", unit: "red cards" },
+  { key: "fouls", label: "Fouls", unit: "fouls" }
 ];
 
 export function Leaderboards({ lists, teamColors }: { lists: Record<LeaderStat, Leader[] | null>; teamColors: Record<number, { short: string; color: string }> }) {

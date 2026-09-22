@@ -9,14 +9,15 @@ export const metadata: Metadata = { title: "Top players" };
 export const revalidate = 600;
 
 export default async function PlayersPage() {
-  const [data, goals, assists, yellow, red] = await Promise.all([
+  const [data, goals, assists, yellow, red, fouls] = await Promise.all([
     loadLeague(),
     loadLeaders("goals"),
     loadLeaders("assists"),
     loadLeaders("yellow"),
-    loadLeaders("red")
+    loadLeaders("red"),
+    loadLeaders("fouls")
   ]);
-  const lists: Record<LeaderStat, Leader[] | null> = { goals, assists, yellow, red };
+  const lists: Record<LeaderStat, Leader[] | null> = { goals, assists, yellow, red, fouls };
   const teamColors = Object.fromEntries([...data.teams].map(([id, t]) => [id, { short: t.short, color: t.color }]));
 
   return (

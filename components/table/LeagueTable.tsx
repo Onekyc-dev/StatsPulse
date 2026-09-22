@@ -116,7 +116,7 @@ export function LeagueTable({
                     <td className="py-2 pr-2">
                       <Link href={`/team/${r.teamId}`} className="flex min-w-0 items-center gap-2.5">
                         <Crest short={r.short} color={r.color} size={22} teamId={r.teamId} name={r.name} />
-                        <span className="max-w-[9rem] truncate font-semibold sm:max-w-[14rem]">{r.name}</span>
+                        <span className="max-w-[10rem] truncate font-semibold sm:max-w-[14rem]">{r.name}</span>
                       </Link>
                     </td>
                     <td className="px-1.5 text-center text-white/70">{r.played}</td>

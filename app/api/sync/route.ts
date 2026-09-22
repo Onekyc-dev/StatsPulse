@@ -369,7 +369,12 @@ export async function GET(req: Request) {
       // Manual trigger: open the link a few times to collect everyone's statistics faster.
       const sid = await currentSeasonId();
       if (sid === null) throw new Error("no finished matches stored yet");
-      await refreshPlayerStats(sid, 40, deadline, log);
+      // ?reset=1 marks every player for a fresh five-year collection (run once after this update).
+      if (url.searchParams.get("reset") === "1") {
+        await dbPatch("player_season", { season_id: `eq.${sid}` }, { stats_at: null });
+        log.push("all players marked for a fresh collection");
+      }
+      await refreshPlayerStats(sid, 80, deadline, log);
       log.push(`finished in ${Math.round((Date.now() - started) / 1000)} seconds`);
       return Response.json({ ok: true, mode, log });
     } else if (mode === "near") {
@@ -391,7 +396,7 @@ export async function GET(req: Request) {
       if (active.length === 0) {
         try {
           const sid = await currentSeasonId();
-          if (sid !== null) await refreshPlayerStats(sid, 20, deadline, log);
+          if (sid !== null) await refreshPlayerStats(sid, 12, deadline, log);
         } catch (e) {
           log.push(`player collection skipped: ${e instanceof Error ? e.message.slice(0, 120) : "error"}`);
         }

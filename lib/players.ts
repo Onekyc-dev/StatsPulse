@@ -9,15 +9,14 @@ const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
 function nameOf(v: unknown): string {
   if (typeof v === "string") return v;
-  if (isObj(v)) return str(v.name) || str(v.team_name) || str(v.title);
+  if (isObj(v)) return str(v.name) || str(v.team_name) || str(v.title) || str(v.label);
   return "";
 }
 function firstText(o: Json, keys: string[]): string {
   for (const k of keys) {
     const t = nameOf(o[k]);
     if (t) return t;
-    const n = num(o[k]);
-    if (n !== null && typeof o[k] === "number") return String(n);
+    if (typeof o[k] === "number") return String(o[k]);
   }
   return "";
 }
@@ -32,7 +31,7 @@ function listOf(data: unknown): unknown[] {
   const direct = rowsOf(data);
   if (direct.length > 0) return direct;
   if (isObj(data)) {
-    for (const k of ["data", "items", "career", "transfers", "stats", "seasons"]) if (Array.isArray(data[k])) return data[k] as unknown[];
+    for (const k of ["seasons", "transfers", "career", "stats", "data", "items"]) if (Array.isArray(data[k])) return data[k] as unknown[];
   }
   return [];
 }
@@ -50,6 +49,14 @@ export function formatMoney(v: unknown): string | null {
   return `€${n}`;
 }
 
+const LONG = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", day: "numeric", month: "short", year: "numeric" });
+/** "30 Jun 2030". Returns the input unchanged if it is not a date. */
+export function longDate(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : LONG.format(d);
+}
+
 export function ageFrom(dob: string | null, now = new Date()): number | null {
   if (!dob) return null;
   const d = new Date(dob);
@@ -58,6 +65,13 @@ export function ageFrom(dob: string | null, now = new Date()): number | null {
   const m = now.getUTCMonth() - d.getUTCMonth();
   if (m < 0 || (m === 0 && now.getUTCDate() < d.getUTCDate())) age--;
   return age;
+}
+
+/** The date five years ago, as YYYY-MM-DD. */
+export function fiveYearsAgo(now = new Date()): string {
+  const d = new Date(now.getTime());
+  d.setUTCFullYear(d.getUTCFullYear() - 5);
+  return d.toISOString().slice(0, 10);
 }
 
 /* ---------------- profile ---------------- */
@@ -70,6 +84,7 @@ export type PlayerProfile = {
   positions: string[];
   teamId: number | null;
   teamName: string;
+  nationalTeamId: number | null;
   nationality: string;
   dob: string | null;
   age: number | null;
@@ -78,6 +93,14 @@ export type PlayerProfile = {
   number: number | null;
   marketValue: string | null;
   contractEnd: string | null;
+  availability: string | null;
+  injury: string | null;
+  returns: string | null;
+  rating: number | null;
+  potential: string | null;
+  injuryRisk: string | null;
+  providerStrengths: string[];
+  providerWeaknesses: string[];
   skills: Skill[];
 };
 
@@ -99,12 +122,25 @@ function mapSkills(v: unknown): Skill[] {
   return out.filter((s) => s.value >= 0 && s.value <= 100);
 }
 
+function textList(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.map((x) => (typeof x === "string" ? x : nameOf(x) || str(isObj(x) ? x.text : ""))).map((s) => s.trim()).filter(Boolean);
+}
+
+function footName(raw: string): string | null {
+  const f = raw.trim();
+  if (!f) return null;
+  const u = f.toUpperCase();
+  return u === "L" ? "Left" : u === "R" ? "Right" : u === "B" ? "Both" : f;
+}
+
 export function mapProfile(data: unknown, id: number): PlayerProfile | null {
   if (!isObj(data)) return null;
   const p = isObj(data.player) ? data.player : data;
   const name = str(p.name) || str(p.player_name);
   if (!name) return null;
-  const team = isObj(p.team) ? p.team : isObj(p.current_team) ? p.current_team : null;
+  const team = isObj(p.current_team) ? p.current_team : isObj(p.team) ? p.team : null;
+  const national = isObj(p.national_team) ? p.national_team : null;
   const positions = Array.isArray(p.positions)
     ? p.positions.map((x) => (typeof x === "string" ? x : nameOf(x))).filter(Boolean)
     : typeof p.positions === "string"
@@ -116,16 +152,25 @@ export function mapProfile(data: unknown, id: number): PlayerProfile | null {
     name,
     position: str(p.position) || positions[0] || "",
     positions,
-    teamId: firstNum(p, ["team_id", "current_team_id"]) ?? (team ? firstNum(team, ["id"]) : null),
-    teamName: str(p.team_name) || (team ? nameOf(team) : "") || nameOf(p.team),
+    teamId: firstNum(p, ["current_team_id", "team_id"]) ?? (team ? firstNum(team, ["id"]) : null),
+    teamName: str(p.team_name) || (team ? nameOf(team) : ""),
+    nationalTeamId: firstNum(p, ["national_team_id"]) ?? (national ? firstNum(national, ["id"]) : null),
     nationality: str(p.nationality) || str(p.country) || str(p.nationality_code),
     dob,
     age: firstNum(p, ["age"]) ?? ageFrom(dob),
-    heightCm: firstNum(p, ["height", "height_cm"]),
-    foot: str(p.preferred_foot) || str(p.foot) || null,
+    heightCm: firstNum(p, ["height_cm", "height"]),
+    foot: footName(str(p.preferred_foot) || str(p.foot)),
     number: firstNum(p, ["jersey_number", "shirt_number", "number"]),
-    marketValue: formatMoney(p.market_value ?? p.transfer_value ?? p.market_value_eur ?? p.value),
-    contractEnd: str(p.contract_end) || str(p.contract_until) || str(p.contract_expires) || null,
+    marketValue: formatMoney(p.market_value_eur ?? p.market_value ?? p.transfer_value ?? p.value),
+    contractEnd: str(p.contract_until) || str(p.contract_end) || str(p.contract_expires) || null,
+    availability: str(p.availability) || null,
+    injury: str(p.injury_type) || null,
+    returns: str(p.injury_expected_return) || null,
+    rating: firstNum(p, ["rating"]),
+    potential: str(p.potential) || null,
+    injuryRisk: str(p.injury_risk) || null,
+    providerStrengths: textList(p.strengths),
+    providerWeaknesses: textList(p.weaknesses),
     skills: mapSkills(p.skills ?? p.attributes)
   };
 }
@@ -138,59 +183,171 @@ export async function loadPlayerProfile(id: number): Promise<PlayerProfile | nul
   }
 }
 
-/* ---------------- career and transfers ---------------- */
+/* ---------------- career ---------------- */
 
-export type CareerRow = { season: string; competition: string; club: string; matches: number | null; minutes: number | null; goals: number | null; assists: number | null };
-export type TransferRow = { date: string; from: string; to: string; fee: string; kind: string };
+export type CareerRow = {
+  season: string;
+  sortKey: string;
+  competition: string;
+  leagueId: number | null;
+  club: string;
+  teamId: number | null;
+  matches: number | null;
+  minutes: number | null;
+  goals: number | null;
+  assists: number | null;
+  rating: number | null;
+};
 
-function careerRow(o: Json, parentSeason: string): CareerRow | null {
-  const row: CareerRow = {
-    season: firstText(o, ["season", "season_name", "season_year", "year"]) || parentSeason,
-    competition: firstText(o, ["competition", "competition_name", "league", "league_name", "tournament"]),
-    club: firstText(o, ["team", "team_name", "club", "club_name"]),
+type RawCareer = {
+  seasonId: number | null;
+  leagueId: number | null;
+  teamId: number | null;
+  seasonText: string;
+  competitionText: string;
+  clubText: string;
+  matches: number | null;
+  minutes: number | null;
+  goals: number | null;
+  assists: number | null;
+  rating: number | null;
+};
+
+function rawCareerRow(o: Json, parentSeason: string): RawCareer | null {
+  const row: RawCareer = {
+    seasonId: firstNum(o, ["season_id"]),
+    leagueId: firstNum(o, ["league_id"]),
+    teamId: firstNum(o, ["team_id"]),
+    seasonText: firstText(o, ["season", "season_name", "season_year", "year"]) || parentSeason,
+    competitionText: firstText(o, ["competition", "competition_name", "league", "league_name", "tournament"]),
+    clubText: firstText(o, ["team", "team_name", "club", "club_name"]),
     matches: firstNum(o, ["matches", "mp", "appearances", "games", "played", "apps", "matches_played"]),
     minutes: firstNum(o, ["minutes", "minutes_played", "min"]),
     goals: firstNum(o, ["goals", "goals_scored"]),
-    assists: firstNum(o, ["assists", "goal_assists"])
+    assists: firstNum(o, ["assists", "goal_assist", "goal_assists"]),
+    rating: firstNum(o, ["avg_rating", "rating"])
   };
-  return row.season || row.competition || row.club ? row : null;
+  return row.seasonId !== null || row.leagueId !== null || row.teamId !== null || row.seasonText || row.competitionText || row.clubText ? row : null;
 }
 
-export function mapCareer(data: unknown): CareerRow[] {
-  const out: CareerRow[] = [];
+export function rawCareer(data: unknown): RawCareer[] {
+  const out: RawCareer[] = [];
   for (const r of listOf(data)) {
     if (!isObj(r)) continue;
-    const season = firstText(r, ["season", "season_name", "season_year", "year"]);
-    const nested = ["competitions", "leagues", "entries", "rows", "stats"].map((k) => r[k]).find(Array.isArray) as unknown[] | undefined;
+    const season = firstText(r, ["season", "season_name", "year"]);
+    const nested = ["competitions", "leagues", "entries", "rows"].map((k) => r[k]).find(Array.isArray) as unknown[] | undefined;
     if (nested) {
-      for (const n of nested) if (isObj(n)) { const c = careerRow(n, season); if (c) out.push(c); }
+      for (const n of nested) if (isObj(n)) { const c = rawCareerRow(n, season); if (c) out.push(c); }
     } else {
-      const c = careerRow(r, "");
+      const c = rawCareerRow(r, "");
       if (c) out.push(c);
     }
   }
-  return out.sort((a, b) => b.season.localeCompare(a.season) || (b.matches ?? 0) - (a.matches ?? 0));
+  return out;
 }
 
+async function poolMap<T, R>(items: T[], size: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = [];
+  for (let i = 0; i < items.length; i += size) out.push(...(await Promise.all(items.slice(i, i + size).map(fn))));
+  return out;
+}
+
+type SeasonInfo = { label: string; sort: string };
+
+export function seasonInfo(s: unknown, leagueName = ""): (SeasonInfo & { id: number }) | null {
+  if (!isObj(s)) return null;
+  const id = firstNum(s, ["id", "season_id"]);
+  if (id === null) return null;
+  const name = str(s.name);
+  const year = firstNum(s, ["year"]);
+  const m = name.match(/(\d{2,4}\s*\/\s*\d{2,4}|\d{4})\s*$/);
+  let label = m ? m[1].replace(/\s+/g, "") : year !== null ? String(year) : name.replace(leagueName, "").trim() || `Season ${id}`;
+  const short = label.match(/^(\d{2})\/(\d{2})$/);
+  if (short) label = `20${short[1]}/${short[2]}`;
+  return { id, label, sort: str(s.start_date) || (year !== null ? `${year}-01-01` : label) };
+}
+
+/** Career rows only carry ids. This looks up league, season and club names (cached for a day). */
 export async function loadCareer(id: number): Promise<CareerRow[]> {
   try {
-    return mapCareer(await bsd<unknown>(`/players/${id}/career/`, { revalidate: 3600 }));
+    const raws = rawCareer(await bsd<unknown>(`/players/${id}/career/`, { revalidate: 3600 }));
+    if (raws.length === 0) return [];
+    const leagueIds = [...new Set(raws.map((r) => r.leagueId).filter((v): v is number => v !== null))];
+    const teamIds = [...new Set(raws.map((r) => r.teamId).filter((v): v is number => v !== null))];
+
+    const leagueNames = new Map<number, string>();
+    try {
+      for (const l of rowsOf(await bsd<unknown>("/leagues/?limit=200", { revalidate: 86400 }))) {
+        if (isObj(l)) {
+          const lid = firstNum(l, ["id"]);
+          if (lid !== null) leagueNames.set(lid, str(l.name));
+        }
+      }
+    } catch {
+      // names stay blank
+    }
+
+    const seasons = new Map<string, SeasonInfo>(); // key: leagueId:seasonId
+    await poolMap(leagueIds, 6, async (lid) => {
+      try {
+        const data = await bsd<unknown>(`/leagues/${lid}/seasons/`, { revalidate: 86400 });
+        for (const s of listOf(data)) {
+          const si = seasonInfo(s, leagueNames.get(lid) ?? "");
+          if (si) seasons.set(`${lid}:${si.id}`, { label: si.label, sort: si.sort });
+        }
+      } catch {
+        // labels fall back to the season id
+      }
+    });
+
+    const clubNames = new Map<number, string>();
+    await poolMap(teamIds, 6, async (tid) => {
+      try {
+        const d = await bsd<unknown>(`/teams/${tid}/`, { revalidate: 86400 });
+        const nm = isObj(d) ? str(d.name) || nameOf(d.team) : "";
+        if (nm) clubNames.set(tid, nm);
+      } catch {
+        // leave blank
+      }
+    });
+
+    const rows: CareerRow[] = raws.map((r) => {
+      const si = r.leagueId !== null && r.seasonId !== null ? seasons.get(`${r.leagueId}:${r.seasonId}`) : undefined;
+      return {
+        season: si?.label ?? (r.seasonText || (r.seasonId !== null ? `Season ${r.seasonId}` : "")),
+        sortKey: si?.sort ?? r.seasonText,
+        competition: (r.leagueId !== null ? leagueNames.get(r.leagueId) : "") || r.competitionText || (r.leagueId !== null ? `Competition ${r.leagueId}` : ""),
+        leagueId: r.leagueId,
+        club: (r.teamId !== null ? clubNames.get(r.teamId) : "") || r.clubText || (r.teamId !== null ? `Team ${r.teamId}` : ""),
+        teamId: r.teamId,
+        matches: r.matches,
+        minutes: r.minutes,
+        goals: r.goals,
+        assists: r.assists,
+        rating: r.rating
+      };
+    });
+    return rows.sort((a, b) => b.sortKey.localeCompare(a.sortKey) || (b.matches ?? 0) - (a.matches ?? 0));
   } catch {
     return [];
   }
 }
 
+/* ---------------- transfers ---------------- */
+
+export type TransferRow = { date: string; from: string; to: string; fee: string; kind: string };
+
 export function mapTransfers(data: unknown): TransferRow[] {
   const out: TransferRow[] = [];
   for (const r of listOf(data)) {
     if (!isObj(r)) continue;
-    const feeRaw = r.fee ?? r.fee_eur ?? r.amount ?? r.fee_text;
+    const feeNum = num(r.fee_eur ?? r.fee ?? r.amount);
     const row: TransferRow = {
-      date: firstText(r, ["date", "transfer_date", "moved_at"]),
-      from: firstText(r, ["from_team", "from_team_name", "from", "from_club"]),
-      to: firstText(r, ["to_team", "to_team_name", "to", "to_club"]),
-      fee: formatMoney(feeRaw) ?? (str(r.fee_type) || str(r.type) || ""),
-      kind: str(r.type) || str(r.transfer_type) || ""
+      date: firstText(r, ["transfer_date", "date", "moved_at"]),
+      from: firstText(r, ["from_team_name", "from_team", "from", "from_club"]),
+      to: firstText(r, ["to_team_name", "to_team", "to", "to_club"]),
+      fee: feeNum !== null ? (feeNum === 0 ? "No fee" : formatMoney(feeNum) ?? "") : str(r.fee_description),
+      kind: str(r.type) || str(r.transfer_type)
     };
     if (row.from || row.to) out.push(row);
   }
@@ -212,24 +369,24 @@ export type Metric =
   | "tackles" | "interceptions" | "clearances" | "duelsWon" | "aerialsWon" | "recoveries" | "dribbles" | "fouls";
 
 const ALIASES: Record<Metric | "minutes" | "rating", string[]> = {
-  minutes: ["minutes", "minutesplayed", "min", "mins", "timeplayed"],
-  rating: ["rating", "matchrating", "avgrating", "sofascorerating"],
+  minutes: ["minutesplayed", "minutes", "min", "mins", "timeplayed"],
+  rating: ["rating", "matchrating", "avgrating"],
   goals: ["goals", "goalsscored"],
-  assists: ["assists", "goalassists"],
-  xg: ["xg", "expectedgoals"],
-  xa: ["xa", "xag", "expectedassists"],
-  shots: ["shots", "totalshots", "shotstotal", "totalscoringatt"],
+  assists: ["goalassist", "assists", "goalassists"],
+  xg: ["expectedgoals", "xg"],
+  xa: ["expectedassists", "xa", "xag"],
+  shots: ["totalshots", "shots", "shotstotal", "totalscoringatt"],
   sot: ["shotsontarget", "ontargetscoringatt", "sot", "shotontarget"],
-  keyPasses: ["keypasses", "keypass", "chancescreated", "keypassescount"],
-  passes: ["passes", "totalpasses", "passestotal", "totalpass"],
-  passesAcc: ["accuratepasses", "passescompleted", "passesaccurate", "accuratepass"],
-  tackles: ["tackles", "tackleswon", "totaltackles", "wontackle"],
-  interceptions: ["interceptions", "interceptionwon", "totalinterceptions"],
-  clearances: ["clearances", "totalclearance", "clearance"],
-  duelsWon: ["duelswon", "duelwon", "groundduelswon", "wonduels"],
-  aerialsWon: ["aerialswon", "aerialduelswon", "aerialwon", "wonaerials"],
-  recoveries: ["recoveries", "ballrecovery", "ballrecoveries"],
-  dribbles: ["dribbleswon", "successfuldribbles", "dribbles", "wontakeon"],
+  keyPasses: ["keypass", "keypasses", "chancescreated"],
+  passes: ["totalpass", "passes", "totalpasses", "passestotal"],
+  passesAcc: ["accuratepass", "accuratepasses", "passescompleted", "passesaccurate"],
+  tackles: ["wontackle", "tackleswon", "tackles", "totaltackles"],
+  interceptions: ["interception", "interceptions", "interceptionwon", "totalinterceptions"],
+  clearances: ["totalclearance", "clearances", "clearance"],
+  duelsWon: ["duelwon", "duelswon", "groundduelswon", "wonduels"],
+  aerialsWon: ["aerialwon", "aerialswon", "aerialduelswon", "wonaerials"],
+  recoveries: ["ballrecovery", "recoveries", "ballrecoveries"],
+  dribbles: ["woncontest", "dribbleswon", "successfuldribbles", "dribbles", "wontakeon"],
   fouls: ["fouls", "foulscommitted", "foulcommitted"]
 };
 
@@ -299,6 +456,7 @@ export function aggregateMatches(data: unknown): Aggregate {
   return { matches, minutes, rating: ratingN > 0 ? Math.round((ratingSum / ratingN) * 100) / 100 : null, totals, per90 };
 }
 
+/** One season's matches for a player. */
 export async function loadPlayerMatches(id: number, seasonId: number): Promise<Aggregate | null> {
   try {
     const data = await bsd<unknown>(`/players/${id}/stats/?season_id=${seasonId}&limit=200`, { revalidate: 600 });
@@ -306,4 +464,25 @@ export async function loadPlayerMatches(id: number, seasonId: number): Promise<A
   } catch {
     return null;
   }
+}
+
+/**
+ * Every match since a date (up to 800), combined into one average. Used for the five-year strengths view.
+ * `fresh` skips caching, for the background job.
+ */
+export async function fetchWindowAggregate(id: number, dateFrom: string, opts: { fresh?: boolean } = {}): Promise<Aggregate | null> {
+  const rows: unknown[] = [];
+  for (let offset = 0; offset < 800; offset += 200) {
+    let page: unknown;
+    try {
+      page = await bsd<unknown>(`/players/${id}/stats/?date_from=${dateFrom}&limit=200&offset=${offset}`, opts.fresh ? {} : { revalidate: 600 });
+    } catch {
+      break;
+    }
+    if (page === null) break;
+    const list = listOf(page);
+    rows.push(...list);
+    if (list.length < 200) break;
+  }
+  return rows.length > 0 ? aggregateMatches(rows) : null;
 }

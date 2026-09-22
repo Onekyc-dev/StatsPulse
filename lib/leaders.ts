@@ -1,7 +1,7 @@
 import { bsd } from "./bsd";
 import { num, rowsOf } from "./live";
 
-export type LeaderStat = "goals" | "assists" | "yellow" | "red";
+export type LeaderStat = "goals" | "assists" | "yellow" | "red" | "fouls";
 export type Leader = { rank: number; playerId: number | null; name: string; teamId: number | null; team: string; value: number };
 export type SquadPlayer = {
   id: number | null;
@@ -17,12 +17,13 @@ type Json = Record<string, unknown>;
 const isObj = (v: unknown): v is Json => !!v && typeof v === "object" && !Array.isArray(v);
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
-/** The provider documents the goals leaderboard as .../top/scorers/. The other names are tried in order. */
+/** The provider accepts exactly: scorers, assists, yellowcards, redcards, fouls. */
 const SLUGS: Record<LeaderStat, string[]> = {
   goals: ["scorers"],
   assists: ["assists"],
-  yellow: ["yellow_cards", "yellows", "yellow", "cards", "yellow-cards"],
-  red: ["red_cards", "reds", "red", "red-cards"]
+  yellow: ["yellowcards"],
+  red: ["redcards"],
+  fouls: ["fouls"]
 };
 
 function rows(data: unknown): unknown[] {

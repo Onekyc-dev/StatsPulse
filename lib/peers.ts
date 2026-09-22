@@ -46,8 +46,8 @@ export function groupOf(position: string): Group | null {
 export type Finding = { key: string; text: string; detail: string; topPercent: number };
 export type Assessment = { strengths: Finding[]; weaknesses: Finding[]; note: string | null; peers: number };
 
-const MIN_PLAYER_MINUTES = 270;
-const MIN_PEER_MINUTES = 300;
+const MIN_PLAYER_MINUTES = 900;
+const MIN_PEER_MINUTES = 900;
 const MIN_PEERS = 25;
 
 /** Share of peers this player beats, 0 to 100 (ties count half). */
@@ -65,7 +65,7 @@ export function assess(player: { group: Group | null; minutes: number; per90: Re
   const empty = (note: string, n = 0): Assessment => ({ strengths: [], weaknesses: [], note, peers: n });
   if (!player.group) return empty("The position is not known, so no comparison is possible.");
   if (player.group === "G") return empty("Goalkeeper comparisons are not available yet.");
-  if (player.minutes < MIN_PLAYER_MINUTES) return empty(`Only ${Math.round(player.minutes)} minutes played this season. At least ${MIN_PLAYER_MINUTES} are needed for a fair comparison.`);
+  if (player.minutes < MIN_PLAYER_MINUTES) return empty(`Only ${Math.round(player.minutes)} minutes recorded over the last five years. At least ${MIN_PLAYER_MINUTES} are needed for a fair comparison.`);
 
   const pool = peers.filter((p) => p.group === player.group && p.minutes >= MIN_PEER_MINUTES && p.playerId !== selfId);
   if (pool.length < MIN_PEERS) return empty(`Still collecting data on other ${GROUP_NAME[player.group]}. ${pool.length} compared so far, ${MIN_PEERS} needed.`, pool.length);
@@ -86,8 +86,8 @@ export function assess(player: { group: Group | null; minutes: number; per90: Re
       key: f.def.key,
       text: strength ? f.def.strength : f.def.weakness,
       detail: strength
-        ? `Top ${top}% of Premier League ${GROUP_NAME[player.group as Group]} for ${f.def.label} (${shown} ${f.def.unit})`
-        : `Bottom ${top}% of Premier League ${GROUP_NAME[player.group as Group]} for ${f.def.label} (${shown} ${f.def.unit})`,
+        ? `Top ${top}% of current Premier League ${GROUP_NAME[player.group as Group]} for ${f.def.label} (${shown} ${f.def.unit})`
+        : `Bottom ${top}% of current Premier League ${GROUP_NAME[player.group as Group]} for ${f.def.label} (${shown} ${f.def.unit})`,
       topPercent: top
     };
   };
