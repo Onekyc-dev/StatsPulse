@@ -1,5 +1,6 @@
 "use client";
 
+import { Fragment } from "react";
 import Link from "next/link";
 import { useState } from "react";
 import { Crest } from "@/components/Crest";
@@ -116,7 +117,7 @@ export function LeagueTable({
                     <td className="py-2 pr-2">
                       <Link href={`/team/${r.teamId}`} className="flex min-w-0 items-center gap-2.5">
                         <Crest short={r.short} color={r.color} size={22} teamId={r.teamId} name={r.name} />
-                        <span className="max-w-[10rem] truncate font-semibold sm:max-w-[14rem]">{r.name}</span>
+                        <span className="max-w-[9rem] truncate font-semibold sm:max-w-[14rem]">{r.name}</span>
                       </Link>
                     </td>
                     <td className="px-1.5 text-center text-white/70">{r.played}</td>
@@ -136,56 +137,67 @@ export function LeagueTable({
           <table className="w-full text-[13px] tnum">
             <thead>
               <tr>
-                <th className={`${th} w-9 pl-3`}>#</th>
+                <th className={`${th} w-7 pl-3 text-left`}>#</th>
                 <th className={`${th} text-left`}>Club</th>
                 <th className={th}>P</th>
-                <th className={`${th} hidden sm:table-cell`}>W</th>
-                <th className={`${th} hidden sm:table-cell`}>D</th>
-                <th className={`${th} hidden sm:table-cell`}>L</th>
-                <th className={`${th} hidden md:table-cell`}>GF</th>
-                <th className={`${th} hidden md:table-cell`}>GA</th>
-                <th className={th}>GD</th>
-                <th className={`${th} pr-3 text-white/60`}>Pts</th>
+                <th className={th}>W</th>
+                <th className={th}>D</th>
+                <th className={th}>L</th>
+                <th className={th}>GLS</th>
+                <th className={`${th} pr-3 text-white/60`}>PTS</th>
                 <th className={`${th} hidden text-left lg:table-cell`}>Form</th>
                 {showNext && <th className={`${th} hidden text-left lg:table-cell`}>Next</th>}
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => {
+              {rows.map((r, idx) => {
                 const zone = showZones ? zones.find((z) => r.pos >= z.from && r.pos <= z.to) : undefined;
+                const zoneStart = zone && (idx === 0 || rows[idx - 1].pos < zone.from);
                 return (
-                  <tr key={r.teamId} className="border-t border-white/[0.05] transition-colors hover:bg-white/[0.03]">
-                    <td className="relative py-2.5 pl-3 pr-1 text-center text-white/55">
-                      {zone && <span className={`absolute inset-y-2 left-0 w-[3px] rounded-full ${zoneClass(zone)}`} />}
-                      {r.pos}
-                    </td>
-                    <td className="py-2 pr-2">
-                      <Link href={`/team/${r.teamId}`} className="flex min-w-0 items-center gap-2.5">
-                        <Crest short={r.short} color={r.color} size={22} teamId={r.teamId} name={r.name} />
-                        <span className="max-w-[10rem] truncate font-semibold sm:max-w-[14rem]">{r.name}</span>
-                      </Link>
-                    </td>
-                    <td className="px-1.5 text-center text-white/70">{r.played}</td>
-                    <td className="hidden px-1.5 text-center text-white/70 sm:table-cell">{r.won}</td>
-                    <td className="hidden px-1.5 text-center text-white/70 sm:table-cell">{r.drawn}</td>
-                    <td className="hidden px-1.5 text-center text-white/70 sm:table-cell">{r.lost}</td>
-                    <td className="hidden px-1.5 text-center text-white/70 md:table-cell">{r.gf}</td>
-                    <td className="hidden px-1.5 text-center text-white/70 md:table-cell">{r.ga}</td>
-                    <td className="px-1.5 text-center text-white/70">{r.gd > 0 ? `+${r.gd}` : r.gd}</td>
-                    <td className="px-2 pr-3 text-center font-display text-[15px] font-extrabold">{r.points}</td>
-                    <td className="hidden px-2 lg:table-cell">{r.form.length > 0 ? <FormPills form={r.form} size="sm" /> : null}</td>
-                    {showNext && (
-                      <td className="hidden px-2 lg:table-cell">
-                        {r.next ? (
-                          <span className="flex items-center gap-2 text-[12px] text-white/60">
-                            <Crest short={r.next.opponentShort} color={r.next.opponentColor} size={18} teamId={r.next.opponentId} name={r.next.opponentName} />
-                            <span className="font-semibold">{r.next.home ? "H" : "A"}</span>
-                            <span className="text-white/40">{r.next.label}</span>
+                  <Fragment key={r.teamId}>
+                    {zoneStart && (
+                      <tr key={`zone-${zone.key}-${zone.from}`} className="border-t border-white/[0.05]">
+                        <td colSpan={showNext ? 10 : 9} className="px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-white/35">
+                          <span className="flex items-center gap-1.5">
+                            <span className={`h-2 w-2 rounded-full ${zoneClass(zone)}`} />
+                            {zone.label}
                           </span>
-                        ) : null}
-                      </td>
+                        </td>
+                      </tr>
                     )}
-                  </tr>
+                    <tr className="border-t border-white/[0.05] transition-colors hover:bg-white/[0.03]">
+                      <td className="relative py-2.5 pl-3 pr-1 text-left text-white/55">
+                        {zone && <span className={`absolute inset-y-2 left-0 w-[3px] rounded-full ${zoneClass(zone)}`} />}
+                        <span className="pl-1.5">{r.pos}</span>
+                      </td>
+                      <td className="py-2 pr-2">
+                        <Link href={`/team/${r.teamId}`} className="flex min-w-0 items-center gap-2.5">
+                          <Crest short={r.short} color={r.color} size={22} teamId={r.teamId} name={r.name} />
+                          <span className="max-w-[9rem] truncate font-semibold sm:max-w-[14rem]">{r.name}</span>
+                        </Link>
+                      </td>
+                      <td className="px-1.5 text-center text-white/70">{r.played}</td>
+                      <td className="px-1.5 text-center text-white/70">{r.won}</td>
+                      <td className="px-1.5 text-center text-white/70">{r.drawn}</td>
+                      <td className="px-1.5 text-center text-white/70">{r.lost}</td>
+                      <td className="px-1.5 text-center tnum text-white/70">
+                        {r.gf}:{r.ga}
+                      </td>
+                      <td className="px-2 pr-3 text-center font-display text-[15px] font-extrabold">{r.points}</td>
+                      <td className="hidden px-2 lg:table-cell">{r.form.length > 0 ? <FormPills form={r.form} size="sm" /> : null}</td>
+                      {showNext && (
+                        <td className="hidden px-2 lg:table-cell">
+                          {r.next ? (
+                            <span className="flex items-center gap-2 text-[12px] text-white/60">
+                              <Crest short={r.next.opponentShort} color={r.next.opponentColor} size={18} teamId={r.next.opponentId} name={r.next.opponentName} />
+                              <span className="font-semibold">{r.next.home ? "H" : "A"}</span>
+                              <span className="text-white/40">{r.next.label}</span>
+                            </span>
+                          ) : null}
+                        </td>
+                      )}
+                    </tr>
+                  </Fragment>
                 );
               })}
             </tbody>

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { withAlpha } from "@/lib/color";
 import { formationRows, surname, type TeamLineup, type XIPlayer } from "@/lib/lineups";
 
@@ -37,11 +38,23 @@ export function LineupPitch({ lineup, color }: { lineup: TeamLineup; color: stri
       </g>
       {dots.map(({ p, x, y }) => (
         <g key={p.id}>
-          <circle cx={x} cy={y} r="15" fill={withAlpha(color, 0.35)} />
-          <circle cx={x} cy={y} r="12" fill={color} stroke={p.captain ? "#f5b73a" : "rgba(255,255,255,0.85)"} strokeWidth={p.captain ? 2.5 : 1.5} />
-          <text x={x} y={y + 3.5} textAnchor="middle" fontSize="10" fontWeight="800" fill="#fff" fontFamily="var(--font-display), system-ui, sans-serif">
-            {p.number ?? ""}
-          </text>
+          {p.id > 0 ? (
+            <a href={`/player/${p.id}`}>
+              <circle cx={x} cy={y} r="15" fill={withAlpha(color, 0.35)} />
+              <circle cx={x} cy={y} r="12" fill={color} stroke={p.captain ? "#f5b73a" : "rgba(255,255,255,0.85)"} strokeWidth={p.captain ? 2.5 : 1.5} />
+              <text x={x} y={y + 3.5} textAnchor="middle" fontSize="10" fontWeight="800" fill="#fff" fontFamily="var(--font-display), system-ui, sans-serif">
+                {p.number ?? ""}
+              </text>
+            </a>
+          ) : (
+            <>
+              <circle cx={x} cy={y} r="15" fill={withAlpha(color, 0.35)} />
+              <circle cx={x} cy={y} r="12" fill={color} stroke={p.captain ? "#f5b73a" : "rgba(255,255,255,0.85)"} strokeWidth={p.captain ? 2.5 : 1.5} />
+              <text x={x} y={y + 3.5} textAnchor="middle" fontSize="10" fontWeight="800" fill="#fff" fontFamily="var(--font-display), system-ui, sans-serif">
+                {p.number ?? ""}
+              </text>
+            </>
+          )}
           <text x={x} y={y + 27} textAnchor="middle" fontSize="8.5" fontWeight="600" fill="rgba(255,255,255,0.92)" style={{ paintOrder: "stroke" }} stroke="rgba(0,0,0,0.55)" strokeWidth="2.5">
             {surname(p)}
           </text>

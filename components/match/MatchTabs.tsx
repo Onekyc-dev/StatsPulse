@@ -5,6 +5,7 @@ import { Clock, History, Lock, Swords } from "lucide-react";
 import { Crest } from "@/components/Crest";
 import { FormPills } from "@/components/FormPills";
 import { niceTime } from "@/lib/format";
+import Link from "next/link";
 import { parseTeamLineup, surname } from "@/lib/lineups";
 import { absencesKnown } from "@/lib/outlook";
 import { LineupPitch } from "./LineupPitch";
@@ -218,7 +219,13 @@ function Lineups({ match }: { match: Match }) {
                   {lineup.subs.map((p) => (
                     <li key={p.id} className="flex gap-2">
                       <span className="w-5 shrink-0 text-right text-[11px] font-bold text-white/30">{p.number ?? ""}</span>
-                      <span className="truncate">{surname(p)}</span>
+                      {p.id > 0 ? (
+                        <Link href={`/player/${p.id}`} className="truncate hover:text-pulse-400">
+                          {surname(p)}
+                        </Link>
+                      ) : (
+                        <span className="truncate">{surname(p)}</span>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -291,7 +298,9 @@ function Absences({ match }: { match: Match }) {
                   return (
                     <li key={a.id} className="panel p-3.5">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-display text-[15px] font-bold">{a.name}</span>
+                        <Link href={`/player/${a.id}`} className="font-display text-[15px] font-bold hover:text-pulse-400">
+                          {a.name}
+                        </Link>
                         <span className={`rounded-md px-2 py-0.5 text-[11px] font-bold ${s.tone}`}>{s.label}</span>
                         {a.impact && a.impact !== "Unknown" && (
                           <span className={`ml-auto rounded-md px-2 py-0.5 text-[11px] font-bold ${impactTone[a.impact]}`}>{a.impact} impact</span>
