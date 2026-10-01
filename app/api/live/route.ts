@@ -1,25 +1,30 @@
 import { bsd } from "@/lib/bsd";
+import { loadEnabledLeagues } from "@/lib/leagues";
 import { rowsOf, snapFromRaw, type LiveSnap } from "@/lib/live";
 
 export const dynamic = "force-dynamic";
 
-const LEAGUE_ID = 1;
-
 /**
- * Scores, clock and status for live matches. One provider request is shared by every visitor:
- * the provider's own cache is 10 to 30 seconds, so we cache for 10 seconds and let the CDN absorb the rest.
+ * Scores, clock and status for live matches, across every enabled league.
+ * One provider request per league is shared by every visitor: the provider's own cache is
+ * 10 to 30 seconds, so we cache for 10 seconds and let the CDN absorb the rest.
  */
 async function liveMap(): Promise<Map<number, LiveSnap>> {
   const out = new Map<number, LiveSnap>();
-  try {
-    const data = await bsd<unknown>(`/events/live/?league_id=${LEAGUE_ID}&limit=50`, { revalidate: 10 });
-    for (const r of rowsOf(data)) {
-      const s = snapFromRaw(r, true);
-      if (s) out.set(s.id, s);
-    }
-  } catch {
-    // If the live feed is briefly unavailable, callers fall back to per-match lookups below.
-  }
+  const leagues = await loadEnabledLeagues();
+  await Promise.all(
+    leagues.map(async (league) => {
+      try {
+        const data = await bsd<unknown>(`/events/live/?league_id=${league.id}&limit=50`, { revalidate: 10 });
+        for (const r of rowsOf(data)) {
+          const s = snapFromRaw(r, true);
+          if (s) out.set(s.id, s);
+        }
+      } catch {
+        // If one league's live feed is briefly unavailable, the others still come through.
+      }
+    })
+  );
   return out;
 }
 
@@ -43,7 +48,8 @@ export async function GET(req: Request) {
       if (s) matches.push(s);
       else missing.push(id);
     }
-    // Not in the live list: it has not started, or it has just ended. Ask about that match directly.
+    // Not in the live list: it has not started, or it has just ended. Ask about that match directly
+    // (this works for any league, since a specific match id needs no league filter).
     await Promise.all(
       missing.slice(0, 6).map(async (id) => {
         try {

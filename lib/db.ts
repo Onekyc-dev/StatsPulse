@@ -5,9 +5,9 @@ import { attackRating, defenceRating, fitStrengths, type Strengths } from "./mod
 import { slugify } from "./teamMeta";
 import { parseTeamLineup, type TeamLineup } from "./lineups";
 import { absenceImpact, computeStability } from "./stability";
+import { PREMIER_LEAGUE_ID } from "./leagues";
 import type { Absence, H2H, Match, ModelStats, ProviderView, Result, TeamView, TimelineEvent } from "./types";
 
-const LEAGUE_ID = 1; // Premier League
 const HISTORY_FROM = "2022-08-01T00:00:00Z";
 const CACHE = 60;
 
@@ -87,7 +87,7 @@ function providerView(raw: unknown): ProviderView {
   }
 }
 
-function buildMatch(f: FixtureRow, ctx: Ctx, now: Date): Match {
+function buildMatch(f: FixtureRow, ctx: Ctx, now: Date, leagueName: string): Match {
   const home = ctx.teams.get(f.home_team_id);
   const away = ctx.teams.get(f.away_team_id);
   const abs = (side: "home" | "away"): Absence[] =>
@@ -102,7 +102,7 @@ function buildMatch(f: FixtureRow, ctx: Ctx, now: Date): Match {
   return {
     id: f.id,
     slug: `${slugify(home?.name ?? "home")}-v-${slugify(away?.name ?? "away")}-${f.id}`,
-    competition: "Premier League",
+    competition: leagueName,
     matchday: f.round_number,
     kickoff: f.kickoff,
     dateLabel,
@@ -131,13 +131,13 @@ function buildMatch(f: FixtureRow, ctx: Ctx, now: Date): Match {
   };
 }
 
-async function loadContext(fixtureIds: number[], withRaw: boolean): Promise<Ctx> {
+async function loadContext(fixtureIds: number[], withRaw: boolean, leagueId: number): Promise<Ctx> {
   const idList = `in.(${fixtureIds.join(",") || "0"})`;
   const [teams, finished, absences, preds, lineups, provider] = await Promise.all([
     dbSelect<TeamRow>("teams", { select: "id,name,short,color", limit: "500" }, { revalidate: CACHE }),
     dbSelectAll<FixtureRow>(
       "fixtures",
-      { select: FIXTURE_COLS, league_id: `eq.${LEAGUE_ID}`, status: "eq.finished", kickoff: `gte.${HISTORY_FROM}`, order: "kickoff.asc,id.asc" },
+      { select: FIXTURE_COLS, league_id: `eq.${leagueId}`, status: "eq.finished", kickoff: `gte.${HISTORY_FROM}`, order: "kickoff.asc,id.asc" },
       { revalidate: CACHE }
     ),
     dbSelect<AbsenceRow>("absences", { select: "fixture_id,side,player_id,player_name,status,reason", fixture_id: idList, limit: "1000" }, { revalidate: CACHE }),
@@ -164,29 +164,38 @@ async function loadContext(fixtureIds: number[], withRaw: boolean): Promise<Ctx>
   };
 }
 
-export async function loadMatches(daysBack: number, daysAhead: number): Promise<{ matches: Match[]; error: string | null }> {
+export async function loadMatches(
+  daysBack: number,
+  daysAhead: number,
+  leagueId: number = PREMIER_LEAGUE_ID,
+  leagueName = "Premier League"
+): Promise<{ matches: Match[]; error: string | null }> {
   try {
     const now = new Date();
     const from = new Date(now.getTime() - daysBack * 86400000).toISOString();
     const to = new Date(now.getTime() + daysAhead * 86400000).toISOString();
     const rows = await dbSelect<FixtureRow>(
       "fixtures",
-      { select: FIXTURE_COLS, league_id: `eq.${LEAGUE_ID}`, kickoff: [`gte.${from}`, `lt.${to}`], order: "kickoff.asc", limit: "200" },
+      { select: FIXTURE_COLS, league_id: `eq.${leagueId}`, kickoff: [`gte.${from}`, `lt.${to}`], order: "kickoff.asc", limit: "200" },
       { revalidate: CACHE }
     );
-    const ctx = await loadContext(rows.map((r) => r.id), false);
-    return { matches: rows.map((r) => buildMatch(r, ctx, now)), error: null };
+    const ctx = await loadContext(rows.map((r) => r.id), false, leagueId);
+    return { matches: rows.map((r) => buildMatch(r, ctx, now, leagueName)), error: null };
   } catch (e) {
     return { matches: [], error: e instanceof Error ? e.message : String(e) };
   }
 }
 
-export async function loadMatch(id: number): Promise<{ match: Match | null; h2h: H2H | null; error: string | null }> {
+export async function loadMatch(
+  id: number,
+  leagueId: number = PREMIER_LEAGUE_ID,
+  leagueName = "Premier League"
+): Promise<{ match: Match | null; h2h: H2H | null; error: string | null }> {
   try {
     const rows = await dbSelect<FixtureRow>("fixtures", { select: FIXTURE_COLS, id: `eq.${id}` }, { revalidate: CACHE });
     if (rows.length === 0) return { match: null, h2h: null, error: null };
-    const ctx = await loadContext([id], true);
-    const match = buildMatch(rows[0], ctx, new Date());
+    const ctx = await loadContext([id], true, leagueId);
+    const match = buildMatch(rows[0], ctx, new Date(), leagueName);
     await addLineupIntelligence(match, rows[0], ctx);
     match.timeline = await loadTimeline(match);
     return { match, h2h: await loadH2H(id), error: null };

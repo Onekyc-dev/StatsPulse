@@ -5,11 +5,11 @@ import { TIERS } from "@/lib/tiers";
 import { currentSeasonId, refreshPlayerStats } from "@/lib/playerStats";
 import { DEFAULT_PARAMS, MODEL_VERSION, fitStrengths, predict, type ModelParams } from "@/lib/model";
 import { shortCode, teamColor } from "@/lib/teamMeta";
+import { PREMIER_LEAGUE_ID, loadEnabledLeagues } from "@/lib/leagues";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const LEAGUE_ID = 1; // Premier League
 const HISTORY_FROM = "2022-08-01"; // four full seasons plus the current one
 const DAY = 86400000;
 
@@ -23,14 +23,14 @@ async function pool<T>(items: T[], size: number, fn: (item: T) => Promise<void>)
 }
 
 /** Saves teams and fixtures from a batch of provider events. */
-async function ingest(events: BsdEvent[]): Promise<number> {
+async function ingest(events: BsdEvent[], leagueId: number): Promise<number> {
   const teams = new Map<number, { id: number; name: string; short: string; color: string; updated_at: string }>();
   const fixtures = new Map<number, object>();
   const now = isoNow();
   for (const e of events) {
     if (e.home_team_id === null || e.away_team_id === null) continue;
-    // Only current Premier League matches are stored, whatever the provider sends back.
-    if (e.league_id !== LEAGUE_ID || e.event_date < HISTORY_FROM) continue;
+    // Only the requested league is stored, whatever date-window queries send back.
+    if (e.league_id !== leagueId || e.event_date < HISTORY_FROM) continue;
     teams.set(e.home_team_id, { id: e.home_team_id, name: e.home_team, short: shortCode(e.home_team), color: teamColor(e.home_team), updated_at: now });
     teams.set(e.away_team_id, { id: e.away_team_id, name: e.away_team, short: shortCode(e.away_team), color: teamColor(e.away_team), updated_at: now });
     fixtures.set(e.id, {
@@ -163,11 +163,11 @@ async function enrichBatch(
 type FxRow = { id: number; home_team_id: number; away_team_id: number; home_score: number | null; away_score: number | null; kickoff: string };
 
 /** Our own predictions for matches that have not kicked off yet. Locked matches are never touched. */
-async function refreshPredictions(log: string[]): Promise<void> {
+async function refreshPredictions(log: string[], leagueId: number): Promise<void> {
   const now = new Date();
   const hist = await dbSelectAll<FxRow>("fixtures", {
     select: "id,home_team_id,away_team_id,home_score,away_score,kickoff",
-    league_id: `eq.${LEAGUE_ID}`, status: "eq.finished", kickoff: `gte.${HISTORY_FROM}T00:00:00Z`, order: "kickoff.asc,id.asc"
+    league_id: `eq.${leagueId}`, status: "eq.finished", kickoff: `gte.${HISTORY_FROM}T00:00:00Z`, order: "kickoff.asc,id.asc"
   });
   const strengths = fitStrengths(
     hist.filter((f) => f.home_score !== null && f.away_score !== null).map((f) => ({
@@ -178,7 +178,7 @@ async function refreshPredictions(log: string[]): Promise<void> {
 
   const upcoming = await dbSelect<FxRow>("fixtures", {
     select: "id,home_team_id,away_team_id,home_score,away_score,kickoff",
-    league_id: `eq.${LEAGUE_ID}`, kickoff: [`gt.${now.toISOString()}`, `lt.${new Date(now.getTime() + 30 * DAY).toISOString()}`], limit: "200"
+    league_id: `eq.${leagueId}`, kickoff: [`gt.${now.toISOString()}`, `lt.${new Date(now.getTime() + 30 * DAY).toISOString()}`], limit: "200"
   });
   const rows = upcoming.map((f) => {
     const p = predict(strengths, f.home_team_id, f.away_team_id);
@@ -219,10 +219,10 @@ async function lockPredictions(log: string[]): Promise<void> {
 type Score = { brier: number; logLoss: number; accuracy: number };
 
 /** Replays the model over past matches: each is predicted using only the matches before it. */
-async function backtest() {
+async function backtest(leagueId: number) {
   const rows = await dbSelectAll<FxRow>("fixtures", {
     select: "id,home_team_id,away_team_id,home_score,away_score,kickoff",
-    league_id: `eq.${LEAGUE_ID}`, status: "eq.finished", kickoff: `gte.${HISTORY_FROM}T00:00:00Z`, order: "kickoff.asc,id.asc"
+    league_id: `eq.${leagueId}`, status: "eq.finished", kickoff: `gte.${HISTORY_FROM}T00:00:00Z`, order: "kickoff.asc,id.asc"
   });
   const played = rows
     .filter((f) => f.home_score !== null && f.away_score !== null)
@@ -357,18 +357,34 @@ export async function GET(req: Request) {
   const missing = ["BSD_API_KEY", "SUPABASE_URL", "SUPABASE_SECRET_KEY"].filter((k) => !process.env[k]);
   if (missing.length > 0) return Response.json({ error: `missing environment variables: ${missing.join(", ")}` }, { status: 500 });
 
+  // Every mode acts on ONE league per request (?league=<id>), defaulting to the Premier League.
+  // Other leagues get their own cron entry rather than being looped in the same request, since
+  // BSD's rate limits for a free key are not confirmed, and one slow league should never be able
+  // to delay or break the Premier League's own refresh.
+  const leagueParam = url.searchParams.get("league");
+  const leagueId = leagueParam ? Number(leagueParam) : PREMIER_LEAGUE_ID;
+  if (!Number.isInteger(leagueId) || leagueId <= 0) return Response.json({ error: "invalid league id" }, { status: 400 });
+  const enabled = await loadEnabledLeagues();
+  const league = enabled.find((l) => l.id === leagueId);
+  if (!league) {
+    return Response.json(
+      { error: `league ${leagueId} is not enabled. Add it to the leagues table with enabled = true first.` },
+      { status: 400 }
+    );
+  }
+
   const mode = url.searchParams.get("mode") ?? "daily";
-  const log: string[] = [];
+  const log: string[] = [`league: ${league.name} (id ${league.id})`];
   const now = new Date();
   const started = Date.now();
   const deadline = started + 40000; // stop starting new work after 40 seconds
-  const base = `/events/?league_id=${LEAGUE_ID}`;
+  const base = `/events/?league_id=${league.id}`;
 
   try {
     if (mode === "players") {
       // Manual trigger: open the link a few times to collect everyone's statistics faster.
-      const sid = await currentSeasonId();
-      if (sid === null) throw new Error("no finished matches stored yet");
+      const sid = await currentSeasonId(undefined, league.id);
+      if (sid === null) throw new Error("no finished matches stored yet for this league");
       // ?reset=1 marks every player for a fresh five-year collection (run once after this update).
       if (url.searchParams.get("reset") === "1") {
         await dbPatch("player_season", { season_id: `eq.${sid}` }, { stats_at: null });
@@ -376,15 +392,15 @@ export async function GET(req: Request) {
       }
       await refreshPlayerStats(sid, 80, deadline, log);
       log.push(`finished in ${Math.round((Date.now() - started) / 1000)} seconds`);
-      return Response.json({ ok: true, mode, log });
+      return Response.json({ ok: true, mode, league: league.name, log });
     } else if (mode === "near") {
       // Runs every few minutes: refreshes scores and lineups only for matches about to start or just played.
       const HOUR = 3600000;
       const window = await bsdList<BsdEvent>(
         `${base}&date_from=${ymd(new Date(now.getTime() - DAY))}&date_to=${ymd(new Date(now.getTime() + DAY))}`, 200
       );
-      const mine = window.filter((e) => e.league_id === LEAGUE_ID);
-      const saved = await ingest(mine);
+      const mine = window.filter((e) => e.league_id === league.id);
+      const saved = await ingest(mine, league.id);
       const active = mine.filter((e) => {
         const t = new Date(e.event_date).getTime();
         return t > now.getTime() - 3 * HOUR && t < now.getTime() + 3 * HOUR;
@@ -395,27 +411,27 @@ export async function GET(req: Request) {
       // When no match is close, use the quiet time to collect player statistics for the comparison feature.
       if (active.length === 0) {
         try {
-          const sid = await currentSeasonId();
+          const sid = await currentSeasonId(undefined, league.id);
           if (sid !== null) await refreshPlayerStats(sid, 12, deadline, log);
         } catch (e) {
           log.push(`player collection skipped: ${e instanceof Error ? e.message.slice(0, 120) : "error"}`);
         }
       }
       log.push(`finished in ${Math.round((Date.now() - started) / 1000)} seconds`);
-      return Response.json({ ok: true, mode, log });
+      return Response.json({ ok: true, mode, league: league.name, log });
     } else if (mode === "backtest") {
-      const result = await backtest();
-      return Response.json({ ok: true, mode, result });
+      const result = await backtest(league.id);
+      return Response.json({ ok: true, mode, league: league.name, result });
     } else if (mode === "backfill") {
       const finished = await bsdList<BsdEvent>(`${base}&status=finished&date_from=${HISTORY_FROM}`, 3400);
-      log.push(`finished matches saved: ${await ingest(finished)}`);
+      log.push(`finished matches saved: ${await ingest(finished, league.id)}`);
       const upcoming = await bsdList<BsdEvent>(`${base}&status=upcoming&date_from=${ymd(now)}&date_to=${ymd(new Date(now.getTime() + 60 * DAY))}`);
-      log.push(`upcoming matches saved: ${await ingest(upcoming)}`);
-      await refreshPredictions(log);
+      log.push(`upcoming matches saved: ${await ingest(upcoming, league.id)}`);
+      await refreshPredictions(log, league.id);
     } else if (mode === "lineups") {
       // Collects confirmed lineups of finished matches, in batches, for the stability score later.
       const finished = await dbSelect<{ id: number }>("fixtures", {
-        select: "id", league_id: `eq.${LEAGUE_ID}`, status: "eq.finished", kickoff: "gte.2026-07-01T00:00:00Z", order: "kickoff.desc", limit: "400"
+        select: "id", league_id: `eq.${league.id}`, status: "eq.finished", kickoff: "gte.2026-07-01T00:00:00Z", order: "kickoff.desc", limit: "400"
       });
       const have = await dbSelect<{ fixture_id: number }>("lineups", { select: "fixture_id", limit: "1000" });
       const haveSet = new Set(have.map((h) => h.fixture_id));
@@ -433,8 +449,8 @@ export async function GET(req: Request) {
         `${base}&date_from=${ymd(new Date(now.getTime() - DAY))}&date_to=${ymd(new Date(now.getTime() + DAY))}`, 200
       );
       const notLive = ["notstarted", "scheduled", "upcoming", "finished", "cancelled", "postponed", "abandoned", "suspended", "unresolved"];
-      const live = window.filter((e) => e.league_id === LEAGUE_ID && !notLive.includes(String(e.status).toLowerCase()));
-      const saved = await ingest([...recent, ...live, ...upcoming]);
+      const live = window.filter((e) => e.league_id === league.id && !notLive.includes(String(e.status).toLowerCase()));
+      const saved = await ingest([...recent, ...live, ...upcoming], league.id);
       log.push(`saved ${saved} matches (${recent.length} recent, ${live.length} live, ${upcoming.length} upcoming)`);
 
       const soon = upcoming
@@ -443,12 +459,12 @@ export async function GET(req: Request) {
       await enrichBatch([...live, ...soon].map((e) => e.id), true, deadline, log, "upcoming and live matches", true);
       const justPlayed = recent.filter((e) => new Date(e.event_date).getTime() > now.getTime() - 3 * DAY);
       await enrichBatch(justPlayed.map((e) => e.id), false, deadline, log, "just-played matches");
-      await refreshPredictions(log);
+      await refreshPredictions(log, league.id);
     }
     log.push(`finished in ${Math.round((Date.now() - started) / 1000)} seconds`);
-    return Response.json({ ok: true, mode, log });
+    return Response.json({ ok: true, mode, league: league.name, log });
   } catch (e) {
     log.push(`stopped after ${Math.round((Date.now() - started) / 1000)} seconds`);
-    return Response.json({ ok: false, mode, log, error: e instanceof Error ? e.message : String(e) }, { status: 500 });
+    return Response.json({ ok: false, mode, league: league.name, log, error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
 }

@@ -2,15 +2,14 @@ import { loadSquad } from "./leaders";
 import { fetchWindowAggregate, fiveYearsAgo } from "./players";
 import { groupOf, type PeerRow } from "./peers";
 import { dbSelect, dbSelectAll, dbUpsert } from "./supabase";
+import { PREMIER_LEAGUE_ID } from "./leagues";
 
-const LEAGUE_ID = 1;
-
-/** The season of the most recent finished Premier League match. */
-export async function currentSeasonId(cacheSeconds?: number): Promise<number | null> {
+/** The season of the most recent finished match in the given league. */
+export async function currentSeasonId(cacheSeconds?: number, leagueId: number = PREMIER_LEAGUE_ID): Promise<number | null> {
   try {
     const rows = await dbSelect<{ season_id: number | null }>(
       "fixtures",
-      { select: "season_id", league_id: `eq.${LEAGUE_ID}`, status: "eq.finished", order: "kickoff.desc", limit: "1" },
+      { select: "season_id", league_id: `eq.${leagueId}`, status: "eq.finished", order: "kickoff.desc", limit: "1" },
       cacheSeconds === undefined ? {} : { revalidate: cacheSeconds }
     );
     return rows[0]?.season_id ?? null;

@@ -1,11 +1,11 @@
 import { dbSelect, dbSelectAll } from "./supabase";
 import { fitStrengths, type Strengths } from "./model";
 import { slugify } from "./teamMeta";
+import { PREMIER_LEAGUE_ID } from "./leagues";
 import type { Fx } from "./standings";
 
 export type TeamRow = { id: number; name: string; short: string; color: string };
 
-const LEAGUE_ID = 1;
 const HISTORY_FROM = "2022-08-01T00:00:00Z";
 const CACHE = 60;
 
@@ -16,15 +16,15 @@ export type LeagueData = {
   error: string | null;
 };
 
-/** Every stored Premier League fixture since 2022, the clubs, and the model's team strengths. */
-export async function loadLeague(): Promise<LeagueData> {
+/** Every stored fixture since 2022 for one league, the clubs, and the model's team strengths. */
+export async function loadLeague(leagueId: number = PREMIER_LEAGUE_ID): Promise<LeagueData> {
   try {
     const [fixtures, teams] = await Promise.all([
       dbSelectAll<Fx>(
         "fixtures",
         {
           select: "id,season_id,kickoff,status,home_team_id,away_team_id,home_score,away_score",
-          league_id: `eq.${LEAGUE_ID}`,
+          league_id: `eq.${leagueId}`,
           kickoff: `gte.${HISTORY_FROM}`,
           order: "kickoff.asc,id.asc"
         },
