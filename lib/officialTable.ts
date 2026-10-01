@@ -48,9 +48,9 @@ function mapRow(r: unknown): OfficialRow | null {
 }
 
 /** The provider's official table for a season: zones (Champions League, relegation) and expected goals. */
-export async function loadOfficialTable(seasonId: number): Promise<OfficialTable | null> {
+export async function loadOfficialTable(seasonId: number, leagueId: number = 1): Promise<OfficialTable | null> {
   try {
-    const data = await bsd<unknown>(`/leagues/1/standings/?season_id=${seasonId}`, { revalidate: 600 });
+    const data = await bsd<unknown>(`/leagues/${leagueId}/standings/?season_id=${seasonId}`, { revalidate: 600 });
     if (!isObj(data) || !Array.isArray(data.standings)) return null;
     const rows = data.standings.map(mapRow).filter((r): r is OfficialRow => r !== null);
     const zones = Array.isArray(data.zones) ? data.zones.map(mapZone).filter((z): z is Zone => z !== null) : [];
