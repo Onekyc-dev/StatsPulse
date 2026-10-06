@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Crest } from "@/components/Crest";
+import { LeagueBadge } from "@/components/LeagueBadge";
 import { flagFor } from "@/lib/countries";
 import type { League } from "@/lib/leagues";
 
@@ -82,7 +83,7 @@ export function LeaguesHub({ leagues }: { leagues: League[] }) {
                     return (
                       <div key={l.id} className="border-b border-white/[0.04] px-3.5 py-3 last:border-b-0">
                         <Link href={`/table?league=${l.id}`} className="mb-2 flex items-center gap-2.5">
-                          <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: l.color }} />
+                          <LeagueBadge id={l.id} size={20} name={l.name} />
                           <span className="text-[13.5px] font-bold text-white/90 hover:text-pulse-400">{l.name}</span>
                         </Link>
 
