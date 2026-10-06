@@ -3,7 +3,7 @@ import { CalendarDays, Home, Shield, Target, Trophy, User, type LucideIcon } fro
 export const navItems: { name: string; href: string; icon: LucideIcon; bottom: boolean }[] = [
   { name: "Home", href: "/", icon: Home, bottom: true },
   { name: "Matches", href: "/matches", icon: CalendarDays, bottom: true },
-  { name: "Table", href: "/table", icon: Trophy, bottom: true },
+  { name: "Table", href: "/table", icon: Trophy, bottom: false },
   { name: "Predictions", href: "/predictions", icon: Target, bottom: true },
   { name: "Teams", href: "/teams", icon: Shield, bottom: true },
   { name: "Players", href: "/players", icon: User, bottom: false }
@@ -23,3 +23,4 @@ export function isActive(href: string, pathname: string): boolean {
   if (href === "/teams") return pathname.startsWith("/team");
   return pathname.startsWith(href);
 }
+
