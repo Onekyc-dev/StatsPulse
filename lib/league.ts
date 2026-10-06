@@ -19,19 +19,23 @@ export type LeagueData = {
 /** Every stored fixture since 2022 for one league, the clubs, and the model's team strengths. */
 export async function loadLeague(leagueId: number = PREMIER_LEAGUE_ID): Promise<LeagueData> {
   try {
-    const [fixtures, teams] = await Promise.all([
-      dbSelectAll<Fx>(
-        "fixtures",
-        {
-          select: "id,season_id,kickoff,status,home_team_id,away_team_id,home_score,away_score",
-          league_id: `eq.${leagueId}`,
-          kickoff: `gte.${HISTORY_FROM}`,
-          order: "kickoff.asc,id.asc"
-        },
-        { revalidate: CACHE }
-      ),
-      dbSelect<TeamRow>("teams", { select: "id,name,short,color", limit: "500" }, { revalidate: CACHE })
-    ]);
+    const fixtures = await dbSelectAll<Fx>(
+      "fixtures",
+      {
+        select: "id,season_id,kickoff,status,home_team_id,away_team_id,home_score,away_score",
+        league_id: `eq.${leagueId}`,
+        kickoff: `gte.${HISTORY_FROM}`,
+        order: "kickoff.asc,id.asc"
+      },
+      { revalidate: CACHE }
+    );
+    // Only fetch the clubs that actually appear in this league's fixtures, not a
+    // global, capped slice of every team in every league (that silently dropped
+    // teams once the shared teams table grew past the old fixed limit).
+    const teamIds = Array.from(new Set(fixtures.flatMap((f) => [f.home_team_id, f.away_team_id])));
+    const teams = teamIds.length
+      ? await dbSelect<TeamRow>("teams", { select: "id,name,short,color", id: `in.(${teamIds.join(",")})` }, { revalidate: CACHE })
+      : [];
     const hist = fixtures
       .filter((f) => f.status === "finished" && f.home_score !== null && f.away_score !== null)
       .map((f) => ({ homeId: f.home_team_id, awayId: f.away_team_id, homeGoals: f.home_score as number, awayGoals: f.away_score as number, date: f.kickoff }));
