@@ -3,11 +3,12 @@ import { ArrowRight, Shield, ShieldAlert, Sparkles } from "lucide-react";
 import { Crest } from "@/components/Crest";
 import { DataNotice } from "@/components/DataNotice";
 import { FixtureCard, slim } from "@/components/FixtureCard";
-import { LeagueBadge } from "@/components/LeagueBadge";
+import { LeaguesHub } from "@/components/LeaguesHub";
 import { LiveCentre } from "@/components/LiveCentre";
 import { ProbBar } from "@/components/ProbBar";
 import { withAlpha } from "@/lib/color";
 import { loadMatches } from "@/lib/db";
+import { loadEnabledLeagues } from "@/lib/leagues";
 import { buildInsights, leanHeadline } from "@/lib/outlook";
 
 export const revalidate = 60;
@@ -19,7 +20,7 @@ const pillars = [
 ];
 
 export default async function HomePage() {
-  const { matches, error } = await loadMatches(3, 30);
+  const [{ matches, error }, leagues] = await Promise.all([loadMatches(3, 30), loadEnabledLeagues()]);
   const live = matches.filter((m) => m.status === "LIVE");
   const upcoming = matches.filter((m) => m.status === "TODAY" || m.status === "UPCOMING");
   const results = matches.filter((m) => m.status === "FT").slice(-4).reverse();
@@ -30,14 +31,13 @@ export default async function HomePage() {
   return (
     <div className="mx-auto max-w-6xl space-y-9 px-4 py-6 sm:px-6 lg:px-8">
       <header>
-        <p className="flex items-center gap-2 text-sm text-white/50">
-          <LeagueBadge size={18} />
-          {featured ? featured.dateLabel : "Premier League"}
-        </p>
+        <p className="text-sm text-white/50">{featured ? featured.dateLabel : "StatPulse"}</p>
         <h1 className="mt-1 font-display text-[28px] font-extrabold leading-tight tracking-tight sm:text-4xl">
-          {hasToday ? "Today in the Premier League" : "Next up in the Premier League"}
+          {hasToday ? "Today in football" : "Next up"}
         </h1>
       </header>
+
+      {leagues.length > 0 && <LeaguesHub leagues={leagues} />}
 
       {matches.length === 0 && <DataNotice error={error} />}
 
