@@ -15,15 +15,7 @@ export function MobileSearchButton() {
       >
         <Search size={19} />
       </button>
-      {open && <SearchBoxOverlay onClose={() => setOpen(false)} />}
+      {open && <SearchBox variant="overlay" onCloseOverlay={() => setOpen(false)} />}
     </>
-  );
-}
-
-function SearchBoxOverlay({ onClose }: { onClose: () => void }) {
-  return (
-    <div onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <SearchBox variant="overlay" onCloseOverlay={onClose} />
-    </div>
   );
 }
