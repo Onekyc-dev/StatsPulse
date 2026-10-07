@@ -16,11 +16,21 @@ function useDebounced<T>(value: T, ms: number): T {
   return v;
 }
 
-function Results({ hits, onPick, loading }: { hits: SearchHit[]; onPick: () => void; loading: boolean }) {
+function Results({
+  hits,
+  onPick,
+  loading,
+  scrollable = true
+}: {
+  hits: SearchHit[];
+  onPick: () => void;
+  loading: boolean;
+  scrollable?: boolean;
+}) {
   if (loading) return <div className="px-4 py-6 text-center text-[13px] text-white/45">Searching</div>;
   if (hits.length === 0) return <div className="px-4 py-6 text-center text-[13px] text-white/45">No matches found.</div>;
   return (
-    <ul className="max-h-[70vh] overflow-y-auto py-1">
+    <ul className={`py-1 ${scrollable ? "max-h-[70vh] overflow-y-auto" : ""}`}>
       {hits.map((h) => (
         <li key={`${h.kind}-${h.id}`}>
           <Link
@@ -47,65 +57,58 @@ function Results({ hits, onPick, loading }: { hits: SearchHit[]; onPick: () => v
 /** Inline search box, used both in the top bar (desktop) and as a full overlay (mobile). */
 export function SearchBox({ variant, onCloseOverlay }: { variant: "bar" | "overlay"; onCloseOverlay?: () => void }) {
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [hits, setHits] = useState<SearchHit[]>([]);
-  const [loading, setLoading] = useState(false);
-  const debounced = useDebounced(query, 250);
-  const boxRef = useRef<HTMLDivElement>(null);
+  const [tab, setTab] = useState<"all" | "team" | "player">("all");
+    const filtered = tab === "all" ? hits : hits.filter((h) => h.kind === tab);
 
-  useEffect(() => {
-    if (debounced.trim().length < 2) {
-      setHits([]);
-      return;
-    }
-    let cancelled = false;
-    setLoading(true);
-    fetch(`/api/search?q=${encodeURIComponent(debounced)}`)
-      .then((r) => r.json())
-      .then((j: { hits: SearchHit[] }) => {
-        if (!cancelled) setHits(j.hits ?? []);
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [debounced]);
-
-  useEffect(() => {
-    if (variant !== "bar") return;
-    const onDoc = (e: MouseEvent) => {
-      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [variant]);
-
-  const close = () => {
-    setOpen(false);
-    setQuery("");
-    onCloseOverlay?.();
-  };
-
-  if (variant === "overlay") {
     return (
-      <div className="fixed inset-0 z-[60] bg-ink">
+      <div className="fixed inset-0 z-[60] flex flex-col bg-ink">
         <div className="flex h-16 items-center gap-2 border-b border-white/[0.08] px-4">
-          <Search size={18} className="shrink-0 text-white/40" />
-          <input
-            autoFocus
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search teams and players"
-            className="h-full flex-1 bg-transparent text-[15px] outline-none placeholder:text-white/35"
-          />
-          <button onClick={close} aria-label="Close search" className="flex h-9 w-9 items-center justify-center rounded-lg text-white/60 hover:bg-white/[0.06]">
+          <button
+            onClick={close}
+            aria-label="Close search"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white/60 hover:bg-white/[0.06]"
+          >
             <X size={19} />
           </button>
+          <div className="flex h-11 flex-1 items-center gap-2.5 rounded-xl bg-white/[0.06] px-3.5">
+            <Search size={17} className="shrink-0 text-white/40" />
+            <input
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search teams and players"
+              className="h-full flex-1 bg-transparent text-[15px] outline-none placeholder:text-white/35"
+            />
+          </div>
         </div>
-        <Results hits={hits} onPick={close} loading={loading} />
+
+        <div className="no-scrollbar flex items-center gap-2 overflow-x-auto border-b border-white/[0.06] px-4 py-2.5">
+          {(
+            [
+              ["all", "All"],
+              ["team", "Teams"],
+              ["player", "Players"]
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold ${
+                tab === key ? "border-transparent bg-pulse-500 text-[#03100c]" : "border-white/10 bg-white/[0.04] text-white/65"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {query.trim().length < 2 ? (
+            <div className="px-4 py-6 text-center text-[13px] text-white/45">Search for a team or player.</div>
+          ) : (
+            <Results hits={filtered} onPick={close} loading={loading} scrollable={false} />
+          )}
+        </div>
       </div>
     );
   }
