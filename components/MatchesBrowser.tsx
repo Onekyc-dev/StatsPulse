@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { FixtureCard } from "./FixtureCard";
 import type { Match } from "@/lib/types";
 
@@ -22,7 +22,19 @@ function passes(m: Match, f: FilterKey): boolean {
 
 export function MatchesBrowser({ matches }: { matches: Match[] }) {
   const [filter, setFilter] = useState<FilterKey>("all");
-  const shown = matches.filter((m) => passes(m, filter));
+  const [day, setDay] = useState<string | null>(null);
+
+  const days = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const m of matches) {
+      if (!seen.has(m.dateLabel)) seen.set(m.dateLabel, m.kickoff);
+    }
+    return Array.from(seen.entries())
+      .sort((a, b) => a[1].localeCompare(b[1]))
+      .map(([label]) => label);
+  }, [matches]);
+
+  const shown = matches.filter((m) => passes(m, filter) && (day === null || m.dateLabel === day));
 
   const groups: { label: string; items: Match[] }[] = [];
   for (const m of shown) {
@@ -33,6 +45,30 @@ export function MatchesBrowser({ matches }: { matches: Match[] }) {
 
   return (
     <div>
+      {days.length > 1 && (
+        <div className="no-scrollbar -mx-4 mb-3 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+          <button
+            onClick={() => setDay(null)}
+            className={`shrink-0 rounded-xl border px-3.5 py-2 text-[12.5px] font-semibold ${
+              day === null ? "border-pulse-500 bg-pulse-500 text-[#03100c]" : "border-white/[0.1] bg-white/[0.03] text-white/65"
+            }`}
+          >
+            All days
+          </button>
+          {days.map((d) => (
+            <button
+              key={d}
+              onClick={() => setDay(d)}
+              className={`shrink-0 rounded-xl border px-3.5 py-2 text-[12.5px] font-semibold ${
+                day === d ? "border-pulse-500 bg-pulse-500 text-[#03100c]" : "border-white/[0.1] bg-white/[0.03] text-white/65"
+              }`}
+            >
+              {d}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div role="group" aria-label="Filter matches" className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:px-0">
         {FILTERS.map((f) => (
           <button
