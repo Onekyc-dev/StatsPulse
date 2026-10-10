@@ -93,6 +93,14 @@ export function SearchBox({ variant, onCloseOverlay }: { variant: "bar" | "overl
     return () => document.removeEventListener("mousedown", onDoc);
   }, [variant]);
 
+  useEffect(() => {
+    if (variant !== "overlay") return;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [variant]);
+
   const close = () => {
     setOpen(false);
     setQuery("");
@@ -102,7 +110,7 @@ export function SearchBox({ variant, onCloseOverlay }: { variant: "bar" | "overl
   if (variant === "overlay") {
     const filtered = tab === "all" ? hits : hits.filter((h) => h.kind === tab);
     return (
-      <div className="fixed inset-0 z-[60] flex flex-col bg-ink">
+      <div className="fixed inset-0 z-[80] flex flex-col bg-[#050b0d]">
         <div className="flex h-16 items-center gap-2 border-b border-white/[0.08] px-4">
           <button
             onClick={close}
@@ -122,6 +130,7 @@ export function SearchBox({ variant, onCloseOverlay }: { variant: "bar" | "overl
             />
           </div>
         </div>
+
         <div className="no-scrollbar flex items-center gap-2 overflow-x-auto border-b border-white/[0.06] px-4 py-2.5">
           {(
             [
@@ -141,7 +150,8 @@ export function SearchBox({ variant, onCloseOverlay }: { variant: "bar" | "overl
             </button>
           ))}
         </div>
-        <div className="flex-1 overflow-y-auto">
+
+        <div className="flex-1 overflow-y-auto bg-[#050b0d]">
           {query.trim().length < 2 ? (
             <div className="px-4 py-6 text-center text-[13px] text-white/45">Search for a team or player.</div>
           ) : (
