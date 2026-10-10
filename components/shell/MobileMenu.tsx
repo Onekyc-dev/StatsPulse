@@ -38,7 +38,11 @@ export function MobileMenuButton({ label }: { label?: ReactNode }) {
           <nav className="relative flex h-full w-[300px] max-w-[84vw] flex-col gap-1 overflow-y-auto bg-[#050b0d] px-4 py-4">
             <div className="mb-2 flex items-center justify-between px-1">
               <Image src="/images/logo/logo-full.png" alt="StatPulse" width={661} height={160} className="h-8 w-auto" />
-              <button onClick={() => setOpen(false)} aria-label="Close menu" className="flex h-9 w-9 items-center justify-center rounded-lg text-white/60 hover:bg-white/[0.06]">
+              <button
+                onClick={() => setOpen(false)}
+                aria-label="Close menu"
+                className="flex h-9 w-9 items-center justify-center rounded-lg text-white/60 hover:bg-white/[0.06]"
+              >
                 <X size={19} />
               </button>
             </div>
@@ -63,7 +67,9 @@ export function MobileMenuButton({ label }: { label?: ReactNode }) {
 
             <div className="mt-auto rounded-2xl border border-pulse-500/20 bg-pulse-500/[0.06] p-4">
               <div className="text-sm font-semibold">Early build</div>
-              <p className="mt-1 text-xs leading-relaxed text-white/55">Fixtures and injuries are live. Predictions are from a baseline model still being tested.</p>
+              <p className="mt-1 text-xs leading-relaxed text-white/55">
+                Fixtures and injuries are live. Predictions are from a baseline model still being tested.
+              </p>
             </div>
           </nav>
         </div>
