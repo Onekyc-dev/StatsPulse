@@ -3,7 +3,7 @@ import { InstallButton } from "@/components/InstallButton";
 import { SearchBox } from "@/components/SearchBox";
 import { MobileSearchButton } from "@/components/MobileSearchButton";
 import { MobileMenuButton } from "./MobileMenu";
-import { LogoLink } from "./LogoLink";
+
 
 export function TopBar() {
   return (
