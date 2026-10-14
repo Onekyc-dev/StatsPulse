@@ -1,6 +1,5 @@
 
 import {
-  CalendarDays,
   Home,
   Radio,
   Shield,
@@ -17,8 +16,7 @@ export const navItems: {
   icon: LucideIcon;
   bottom: boolean;
 }[] = [
-  { name: "Home", href: "/", icon: Home, bottom: false },
-  { name: "Games", href: "/matches", icon: CalendarDays, bottom: true },
+  { name: "Home", href: "/", icon: Home, bottom: true },
   { name: "Live", href: "/live", icon: Radio, bottom: true },
   { name: "Table", href: "/table", icon: Trophy, bottom: false },
   { name: "Predictions", href: "/predictions", icon: Target, bottom: true },
@@ -41,9 +39,9 @@ export const leagues: {
 
 export function isActive(href: string, pathname: string): boolean {
   if (href === "/") return pathname === "/";
-  if (href === "/matches") {
-    return pathname === "/matches" || pathname.startsWith("/match/");
-  }
   if (href === "/teams") return pathname.startsWith("/team");
+  if (href === "/live" || href === "/favourites") {
+    return pathname === href || pathname.startsWith(`${href}/`);
+  }
   return pathname === href || pathname.startsWith(`${href}/`);
 }
