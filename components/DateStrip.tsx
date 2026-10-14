@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef } from "react";
 
 type CalendarDay = {
   date: Date;
@@ -46,12 +46,17 @@ function buildCalendarDays(): CalendarDay[] {
   return days;
 }
 
-export function DateStrip() {
+export function DateStrip({
+  selectedDate,
+  onDateChange,
+}: {
+  selectedDate: string;
+  onDateChange: (date: string) => void;
+}) {
   const days = useRef(buildCalendarDays()).current;
   const todayKey = getDateKey(new Date());
 
-  const [selectedDate, setSelectedDate] = useState(todayKey);
-
+  
   const selectedDay = days.find(
     (day) => day.key === selectedDate
   );
@@ -77,7 +82,7 @@ export function DateStrip() {
             <button
               key={day.key}
               type="button"
-              onClick={() => setSelectedDate(day.key)}
+              onClick={() => onDateChange(day.key)}
               aria-pressed={isSelected}
               aria-label={`${day.weekday}, ${day.month} ${day.dayNumber}${
                 isToday ? ", today" : ""
