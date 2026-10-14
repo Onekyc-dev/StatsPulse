@@ -8,9 +8,9 @@ import { LiveCentre } from "@/components/LiveCentre";
 import { ProbBar } from "@/components/ProbBar";
 import { withAlpha } from "@/lib/color";
 import { loadMatches } from "@/lib/db";
+import { HomeMatchBrowser } from "@/components/HomeMatchBrowser";
 import { loadEnabledLeagues } from "@/lib/leagues";
 import { buildInsights, leanHeadline } from "@/lib/outlook";
-import { DateStrip } from "@/components/DateStrip";
 
 export const revalidate = 60;
 
@@ -21,7 +21,24 @@ const pillars = [
 ];
 
 export default async function HomePage() {
-  const [{ matches, error }, leagues] = await Promise.all([loadMatches(3, 30), loadEnabledLeagues()]);
+  const leagues = await loadEnabledLeagues();
+
+const leagueResults = await Promise.all(
+  leagues.map(async (league) => ({
+    league,
+    result: await loadMatches(3, 30, league.id, league.name),
+  }))
+);
+
+const matches = leagueResults.flatMap(({ league, result }) =>
+  result.matches.map((match) => ({
+    ...match,
+    country: league.country,
+  }))
+);
+
+const error =
+  leagueResults.find(({ result }) => result.error)?.result.error ?? null;
   const live = matches.filter((m) => m.status === "LIVE");
   const upcoming = matches.filter((m) => m.status === "TODAY" || m.status === "UPCOMING");
   const results = matches.filter((m) => m.status === "FT").slice(-4).reverse();
@@ -32,13 +49,14 @@ export default async function HomePage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-9 px-4 py-6 sm:px-6 lg:px-8">
-      <DateStrip />
+      <HomeMatchBrowser matches={matches} />
+<DataNotice error={error} />
 
       {leagues.length > 0 && <LeaguesHub leagues={leagues} />}
 
-      {matches.length === 0 && <DataNotice error={error} />}
+      
 
-      {featured && (
+      
         <Link
           href={`/match/${featured.slug}`}
           className="relative block overflow-hidden rounded-3xl border border-white/[0.08] bg-ink-900 transition-colors hover:border-pulse-500/40"
