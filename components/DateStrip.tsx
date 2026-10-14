@@ -61,26 +61,9 @@ export function DateStrip() {
       aria-label="Select match date"
       className="w-full min-w-0"
     >
-      <div className="mb-3 flex items-center justify-between">
-        <div>
-          <h2 className="font-display text-lg font-bold text-white">
-            Matches
-          </h2>
-
-          <p className="mt-0.5 text-xs text-white/50">
-            {selectedDay
-              ? `${selectedDay.weekday}, ${selectedDay.month} ${selectedDay.dayNumber}`
-              : "Select a date"}
-          </p>
-        </div>
-
-        <span className="text-xs font-semibold text-pulse-500">
-          SELECT DATE
-        </span>
-      </div>
-
+      
       <div
-        className="flex gap-2 overflow-x-auto pb-2"
+        className="flex gap-0 overflow-x-auto border-b border-white/[0.08]"
         style={{
           scrollbarWidth: "none",
           WebkitOverflowScrolling: "touch",
@@ -100,14 +83,12 @@ export function DateStrip() {
                 isToday ? ", today" : ""
               }`}
               className={[
-                "flex min-w-[58px] shrink-0 flex-col",
+                                "relative flex min-w-[58px] shrink-0 flex-col",
                 "items-center justify-center rounded-xl",
                 "border px-2 py-3 transition-colors",
                 "focus-visible:outline-none",
                 "focus-visible:ring-2 focus-visible:ring-pulse-500",
-                isSelected
-                  ? "border-pulse-500 bg-pulse-500 text-black"
-                  : "border-white/10 bg-white/[0.04] text-white",
+                                isSelected ? "text-pulse-500" : "text-white/55",
               ].join(" ")}
             >
               <span
@@ -119,18 +100,14 @@ export function DateStrip() {
                 {isToday ? "Today" : day.weekday}
               </span>
 
-              <span className="mt-1 text-xl font-extrabold leading-none">
-                {day.dayNumber}
+                            <span className="mt-1 text-xs font-semibold">
+                {String(day.dayNumber).padStart(2, "0")}.
+                {String(day.date.getMonth() + 1).padStart(2, "0")}.
               </span>
 
-              <span
-                className={[
-                  "mt-1 text-[10px]",
-                  isSelected ? "text-black/70" : "text-white/45",
-                ].join(" ")}
-              >
-                {day.month}
-              </span>
+                            {isSelected && (
+                <span className="absolute bottom-0 left-2 right-2 h-[3px] rounded-full bg-pulse-500" />
+              )}
             </button>
           );
         })}
