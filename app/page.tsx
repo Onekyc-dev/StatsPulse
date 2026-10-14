@@ -11,6 +11,7 @@ import { loadMatches } from "@/lib/db";
 import { loadEnabledLeagues } from "@/lib/leagues";
 import { shortDate } from "@/lib/league";
 import { buildInsights, leanHeadline } from "@/lib/outlook";
+import { DateStrip } from "@/components/DateStrip";
 
 export const revalidate = 60;
 
@@ -32,12 +33,7 @@ export default async function HomePage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-9 px-4 py-6 sm:px-6 lg:px-8">
-      <header>
-        <p className="text-sm text-white/50">{todayLabel}</p>
-        <h1 className="mt-1 font-display text-[28px] font-extrabold leading-tight tracking-tight sm:text-4xl">
-          {hasToday ? "Today in football" : "Next up"}
-        </h1>
-      </header>
+      <DateStrip />
 
       {leagues.length > 0 && <LeaguesHub leagues={leagues} />}
 
