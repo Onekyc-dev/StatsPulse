@@ -33,10 +33,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Sidebar />
           <div className="min-w-0">
             <TopBar />
-            <div className="flex items-center justify-center gap-2 border-b border-draw/20 bg-draw/[0.07] px-4 py-1.5 text-[11.5px] text-draw">
-              <span className="h-1.5 w-1.5 rounded-full bg-draw" />
-              Early build. Predictions come from a baseline model that is still being tested.
-            </div>
+            
             <main className="pb-6">{children}</main>
             <footer className="mx-auto max-w-6xl px-4 pb-28 pt-2 text-[11px] leading-relaxed text-white/30 sm:px-6 lg:px-8 lg:pb-12">
               StatPulse is an independent project. It is not affiliated with, endorsed by or sponsored by the Premier League or any club. Club names and badges belong to their
