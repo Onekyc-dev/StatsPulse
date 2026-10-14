@@ -9,7 +9,6 @@ import { ProbBar } from "@/components/ProbBar";
 import { withAlpha } from "@/lib/color";
 import { loadMatches } from "@/lib/db";
 import { loadEnabledLeagues } from "@/lib/leagues";
-import { shortDate } from "@/lib/league";
 import { buildInsights, leanHeadline } from "@/lib/outlook";
 import { DateStrip } from "@/components/DateStrip";
 
@@ -29,7 +28,7 @@ export default async function HomePage() {
   const featured = live[0] ?? upcoming[0] ?? null;
   const rest = upcoming.filter((m) => m.id !== featured?.id).slice(0, 6);
   const hasToday = matches.some((m) => m.status === "TODAY" || m.status === "LIVE");
-  const todayLabel = shortDate(new Date().toISOString());
+  
 
   return (
     <div className="mx-auto max-w-6xl space-y-9 px-4 py-6 sm:px-6 lg:px-8">
