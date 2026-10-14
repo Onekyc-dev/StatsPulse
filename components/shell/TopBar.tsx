@@ -17,7 +17,7 @@ export function TopBar() {
             </span>
           }
         />
-        <LogoLink />
+        
         <SearchBox variant="bar" />
         <div className="ml-auto flex items-center gap-2">
           <MobileSearchButton />
