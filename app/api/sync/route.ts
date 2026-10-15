@@ -29,7 +29,6 @@ async function ingest(events: BsdEvent[], leagueId: number): Promise<number> {
   const now = isoNow();
   for (const e of events) {
     if (e.home_team_id === null || e.away_team_id === null) continue;
-    // Only the requested league is stored, whatever date-window queries send back.
     if (e.league_id !== leagueId || e.event_date < HISTORY_FROM) continue;
     teams.set(e.home_team_id, { id: e.home_team_id, name: e.home_team, short: shortCode(e.home_team), color: teamColor(e.home_team), updated_at: now });
     teams.set(e.away_team_id, { id: e.away_team_id, name: e.away_team, short: shortCode(e.away_team), color: teamColor(e.away_team), updated_at: now });
@@ -61,7 +60,6 @@ type LineupResp = {
 };
 type Fetched = { id: number; lu: LineupResp | null; pr: object | null };
 
-/** Compares new lineups with the stored ones and logs what changed, for the match timeline. */
 async function recordLineupChanges(fetched: Fetched[]): Promise<void> {
   const withLineups = fetched.filter((f) => f.lu && f.lu.lineups);
   if (withLineups.length === 0) return;
@@ -101,11 +99,6 @@ async function recordLineupChanges(fetched: Fetched[]): Promise<void> {
   await dbInsert("lineup_events", events);
 }
 
-/**
- * Lineups, absences and (optionally) the provider's prediction for many matches.
- * Reads run in parallel, writes are batched into a few requests, and the work stops at the deadline
- * so the function never times out. Anything skipped is picked up on the next run.
- */
 async function enrichBatch(
   ids: number[], withPrediction: boolean, deadline: number, log: string[], label: string, trackChanges = false
 ): Promise<void> {
@@ -162,7 +155,6 @@ async function enrichBatch(
 
 type FxRow = { id: number; home_team_id: number; away_team_id: number; home_score: number | null; away_score: number | null; kickoff: string };
 
-/** Our own predictions for matches that have not kicked off yet. Locked matches are never touched. */
 async function refreshPredictions(log: string[], leagueId: number): Promise<void> {
   const now = new Date();
   const hist = await dbSelectAll<FxRow>("fixtures", {
@@ -195,7 +187,6 @@ async function refreshPredictions(log: string[], leagueId: number): Promise<void
   await lockPredictions(log);
 }
 
-/** Predictions for matches that have kicked off become permanent, stamped with the kickoff time. */
 async function lockPredictions(log: string[]): Promise<void> {
   const now = new Date();
   const open = await dbSelect<{ fixture_id: number; model_version: string }>("predictions", {
@@ -218,7 +209,6 @@ async function lockPredictions(log: string[]): Promise<void> {
 
 type Score = { brier: number; logLoss: number; accuracy: number };
 
-/** Replays the model over past matches: each is predicted using only the matches before it. */
 async function backtest(leagueId: number) {
   const rows = await dbSelectAll<FxRow>("fixtures", {
     select: "id,home_team_id,away_team_id,home_score,away_score,kickoff",
@@ -227,7 +217,7 @@ async function backtest(leagueId: number) {
   const played = rows
     .filter((f) => f.home_score !== null && f.away_score !== null)
     .map((f) => ({ homeId: f.home_team_id, awayId: f.away_team_id, homeGoals: f.home_score as number, awayGoals: f.away_score as number, date: f.kickoff }));
-  const START = Math.min(300, Math.floor(played.length / 2)); // the first matches only train the model
+  const START = Math.min(300, Math.floor(played.length / 2));
   const outcome = (h: { homeGoals: number; awayGoals: number }) => (h.homeGoals > h.awayGoals ? 0 : h.homeGoals === h.awayGoals ? 1 : 2);
   const r3 = (v: number) => Math.round(v * 1000) / 1000;
 
@@ -269,14 +259,12 @@ async function backtest(leagueId: number) {
     for (let j = 0; j < i; j++) c[outcome(played[j])]++;
     average.push(c.map((v) => v / i));
   }
-  // Is the model overconfident? Blend it toward the average outcome and see whether the score improves.
   const blends = [0, 0.1, 0.2, 0.3].map((w) => ({
     weight_on_average: w,
     ...score(allProbs[best].map((p, k) => p.map((v, c) => (1 - w) * v + w * average[k][c])))
   }));
 
-  // How often is the model right when it is confident? (This is what a "70% accurate" claim can honestly mean.)
-  const bp = allProbs[0]; // the live model
+  const bp = allProbs[0];
   const topOf = (p: number[]) => Math.max(...p);
   const hit = (k: number) => bp[k].indexOf(topOf(bp[k])) === outcome(played[START + k]);
   const bands = [0, 0.5, 0.55, 0.6, 0.65, 0.7].map((t) => {
@@ -297,7 +285,6 @@ async function backtest(leagueId: number) {
       actually_right_percent: idx.length ? Math.round((idx.filter(hit).length / idx.length) * 100) : null
     };
   });
-  // Double chance: pick the safest pair of outcomes (home or draw, draw or away, home or away).
   const pairs = [[0, 1], [1, 2], [0, 2]];
   let dcHits = 0;
   bp.forEach((p, k) => {
@@ -306,7 +293,6 @@ async function backtest(leagueId: number) {
     if (pick.includes(outcome(played[START + k]))) dcHits++;
   });
 
-  // Exclusive confidence tiers, the same ones the site shows.
   const tierStats = TIERS.map((t) => {
     const idx = bp.map((_, k) => k).filter((k) => {
       const top = Math.round(topOf(bp[k]) * 100);
@@ -329,7 +315,7 @@ async function backtest(leagueId: number) {
   try {
     await dbUpsert("model_stats", [{ key: "backtest", value: stats, updated_at: isoNow() }], "key");
   } catch {
-    savedForSite = false; // run supabase/migration_3.sql first
+    savedForSite = false;
   }
 
   return {
@@ -348,6 +334,43 @@ async function backtest(leagueId: number) {
   };
 }
 
+async function fixMissingScores(log: string[], leagueId: number, deadline: number): Promise<void> {
+  const stale = await dbSelect<{ id: number }>("fixtures", {
+    select: "id",
+    league_id: `eq.${leagueId}`,
+    status: "eq.finished",
+    or: "(home_score.is.null,away_score.is.null)",
+    limit: "200"
+  });
+  if (stale.length === 0) {
+    log.push("no finished matches are missing a score");
+    return;
+  }
+
+  let fixed = 0;
+  let stillMissing = 0;
+  let failed = 0;
+  await pool(stale, 6, async (f) => {
+    if (Date.now() > deadline) {
+      stillMissing++;
+      return;
+    }
+    try {
+      const e = await bsd<BsdEvent>(`/events/${f.id}/`);
+      if (e && e.home_score !== null && e.away_score !== null) {
+        await dbPatch("fixtures", { id: `eq.${f.id}` }, { home_score: e.home_score, away_score: e.away_score, status: e.status, updated_at: isoNow() });
+        fixed++;
+      } else {
+        stillMissing++;
+      }
+    } catch {
+      failed++;
+    }
+  });
+  log.push(`checked ${stale.length} finished matches with a missing score: ${fixed} fixed, ${stillMissing} still missing from the provider, ${failed} failed`);
+  if (fixed > 0) await refreshPredictions(log, leagueId);
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const secret = process.env.CRON_SECRET;
@@ -357,10 +380,6 @@ export async function GET(req: Request) {
   const missing = ["BSD_API_KEY", "SUPABASE_URL", "SUPABASE_SECRET_KEY"].filter((k) => !process.env[k]);
   if (missing.length > 0) return Response.json({ error: `missing environment variables: ${missing.join(", ")}` }, { status: 500 });
 
-  // Every mode acts on ONE league per request (?league=<id>), defaulting to the Premier League.
-  // Other leagues get their own cron entry rather than being looped in the same request, since
-  // BSD's rate limits for a free key are not confirmed, and one slow league should never be able
-  // to delay or break the Premier League's own refresh.
   const leagueParam = url.searchParams.get("league");
   const leagueId = leagueParam ? Number(leagueParam) : PREMIER_LEAGUE_ID;
   if (!Number.isInteger(leagueId) || leagueId <= 0) return Response.json({ error: "invalid league id" }, { status: 400 });
@@ -377,15 +396,13 @@ export async function GET(req: Request) {
   const log: string[] = [`league: ${league.name} (id ${league.id})`];
   const now = new Date();
   const started = Date.now();
-  const deadline = started + 40000; // stop starting new work after 40 seconds
+  const deadline = started + 40000;
   const base = `/events/?league_id=${league.id}`;
 
   try {
     if (mode === "players") {
-      // Manual trigger: open the link a few times to collect everyone's statistics faster.
       const sid = await currentSeasonId(undefined, league.id);
       if (sid === null) throw new Error("no finished matches stored yet for this league");
-      // ?reset=1 marks every player for a fresh five-year collection (run once after this update).
       if (url.searchParams.get("reset") === "1") {
         await dbPatch("player_season", { season_id: `eq.${sid}` }, { stats_at: null });
         log.push("all players marked for a fresh collection");
@@ -393,8 +410,11 @@ export async function GET(req: Request) {
       await refreshPlayerStats(sid, 80, deadline, log);
       log.push(`finished in ${Math.round((Date.now() - started) / 1000)} seconds`);
       return Response.json({ ok: true, mode, league: league.name, log });
+    } else if (mode === "missing-scores") {
+      await fixMissingScores(log, league.id, deadline);
+      log.push(`finished in ${Math.round((Date.now() - started) / 1000)} seconds`);
+      return Response.json({ ok: true, mode, league: league.name, log });
     } else if (mode === "near") {
-      // Runs every few minutes: refreshes scores and lineups only for matches about to start or just played.
       const HOUR = 3600000;
       const window = await bsdList<BsdEvent>(
         `${base}&date_from=${ymd(new Date(now.getTime() - DAY))}&date_to=${ymd(new Date(now.getTime() + DAY))}`, 200
@@ -408,7 +428,6 @@ export async function GET(req: Request) {
       log.push(`saved ${saved} matches, ${active.length} within three hours of kickoff`);
       if (active.length > 0) await enrichBatch(active.map((e) => e.id), false, deadline, log, "matches near kickoff", true);
       await lockPredictions(log);
-      // When no match is close, use the quiet time to collect player statistics for the comparison feature.
       if (active.length === 0) {
         try {
           const sid = await currentSeasonId(undefined, league.id);
@@ -429,7 +448,6 @@ export async function GET(req: Request) {
       log.push(`upcoming matches saved: ${await ingest(upcoming, league.id)}`);
       await refreshPredictions(log, league.id);
     } else if (mode === "lineups") {
-      // Collects confirmed lineups of finished matches, in batches, for the stability score later.
       const finished = await dbSelect<{ id: number }>("fixtures", {
         select: "id", league_id: `eq.${league.id}`, status: "eq.finished", kickoff: "gte.2026-07-01T00:00:00Z", order: "kickoff.desc", limit: "400"
       });
@@ -444,7 +462,6 @@ export async function GET(req: Request) {
       const upcoming = await bsdList<BsdEvent>(
         `${base}&status=upcoming&date_from=${ymd(now)}&date_to=${ymd(new Date(now.getTime() + 30 * DAY))}`, 400
       );
-      // Live matches: look at yesterday to tomorrow and keep anything that has started but not finished.
       const window = await bsdList<BsdEvent>(
         `${base}&date_from=${ymd(new Date(now.getTime() - DAY))}&date_to=${ymd(new Date(now.getTime() + DAY))}`, 200
       );
@@ -460,6 +477,7 @@ export async function GET(req: Request) {
       const justPlayed = recent.filter((e) => new Date(e.event_date).getTime() > now.getTime() - 3 * DAY);
       await enrichBatch(justPlayed.map((e) => e.id), false, deadline, log, "just-played matches");
       await refreshPredictions(log, league.id);
+      await fixMissingScores(log, league.id, deadline);
     }
     log.push(`finished in ${Math.round((Date.now() - started) / 1000)} seconds`);
     return Response.json({ ok: true, mode, league: league.name, log });
