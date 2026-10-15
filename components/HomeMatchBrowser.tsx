@@ -161,8 +161,7 @@ export function HomeMatchBrowser({
   const month = String(today.getMonth() + 1).padStart(2, "0");
   const day = String(today.getDate()).padStart(2, "0");
 
-  return `${year}-${month}-${day}`;
-});
+  
   const selectedMatches = useMemo(() => {
     return matches.filter(
       (match) => getLocalDateKey(match.kickoff) === selectedDate
