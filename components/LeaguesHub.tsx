@@ -34,7 +34,7 @@ type LeagueMatchData = Record<
 number,
 DayMatch[] | "loading" | "error"
 
->;
+«;»
 
 type LeaguesHubProps = {
 leagues: League[];
@@ -42,25 +42,76 @@ selectedDate: string;
 };
 
 export function LeaguesHub({
-  leagues,
-  selectedDate,
+leagues,
+selectedDate,
 }: LeaguesHubProps) {
 const [openCountry, setOpenCountry] = useState<string | null>(null);
-
 const [data, setData] = useState<LeagueMatchData>({});
 
 useEffect(() => {
+let cancelled = false;
+
 setData({});
-}, [selectedDate]);
+
+async function loadAllLeagueMatches() {
+  const results = await Promise.all(
+    leagues.map(async (league) => {
+      try {
+        const params = new URLSearchParams({
+          league: String(league.id),
+          date: selectedDate,
+        });
+
+        const response = await fetch(
+          `/api/league-day?${params.toString()}`
+        );
+
+        if (!response.ok) {
+          throw new Error("Failed to load matches");
+        }
+
+        const result = await response.json();
+
+        return {
+          id: league.id,
+          matches: Array.isArray(result.matches)
+            ? (result.matches as DayMatch[])
+            : null,
+        };
+      } catch {
+        return {
+          id: league.id,
+          matches: null,
+        };
+      }
+    })
+  );
+
+  if (cancelled) return;
+
+  const nextData: LeagueMatchData = {};
+
+  for (const result of results) {
+    nextData[result.id] = result.matches ?? "error";
+  }
+
+  setData(nextData);
+}
+
+void loadAllLeagueMatches();
+
+return () => {
+  cancelled = true;
+};
+
+}, [leagues, selectedDate]);
 
 const byCountry = new Map<string, League[]>();
 
 for (const league of leagues) {
 const countryLeagues = byCountry.get(league.country) ?? [];
-
 countryLeagues.push(league);
 byCountry.set(league.country, countryLeagues);
-
 }
 
 const countries = Array.from(byCountry.entries())
@@ -74,57 +125,10 @@ b[1].length - a[1].length ||
 a[0].localeCompare(b[0])
 );
 
-async function openCountryRow(
-country: string,
-countryLeagues: readonly League[]
-) {
-if (openCountry === country) {
-setOpenCountry(null);
-return;
-}
-
-setOpenCountry(country);
-
-const leaguesToLoad = countryLeagues.filter(
-  (league) => !data[league.id]
+function toggleCountry(country: string) {
+setOpenCountry((current) =>
+current === country ? null : country
 );
-
-for (const league of leaguesToLoad) {
-  setData((current) => ({
-    ...current,
-    [league.id]: "loading",
-  }));
-
-  try {
-    const params = new URLSearchParams({
-      league: String(league.id),
-      date: selectedDate,
-    });
-
-    const response = await fetch(
-      `/api/league-day?${params.toString()}`
-    );
-
-    if (!response.ok) {
-      throw new Error("Failed to load matches");
-    }
-
-    const result = await response.json();
-
-    setData((current) => ({
-      ...current,
-      [league.id]: Array.isArray(result.matches)
-        ? result.matches
-        : "error",
-    }));
-  } catch {
-    setData((current) => ({
-      ...current,
-      [league.id]: "error",
-    }));
-  }
-}
-
 }
 
 return (
@@ -138,25 +142,36 @@ return (
       const matchCount = countryLeagues.reduce(
         (total, league) => {
           const matches = data[league.id];
-
-          return (
-            total +
-            (Array.isArray(matches) ? matches.length : 0)
-          );
+          return total + (Array.isArray(matches) ? matches.length : 0);
         },
         0
       );
 
+      const isLoading = countryLeagues.some(
+        (league) =>
+          data[league.id] === undefined ||
+          data[league.id] === "loading"
+      );
+
+      const hasError = countryLeagues.some(
+        (league) => data[league.id] === "error"
+      );
+
+      // Hide countries only after all their leagues loaded
+      // successfully and confirmed there are no fixtures.
+      const allLoaded =
+        !isLoading &&
+        !hasError;
+
+      if (allLoaded && matchCount === 0) {
+        return null;
+      }
+
       return (
-        <div
-          key={country}
-          className="panel overflow-hidden"
-        >
+        <div key={country} className="panel overflow-hidden">
           <button
             type="button"
-            onClick={() =>
-              openCountryRow(country, countryLeagues)
-            }
+            onClick={() => toggleCountry(country)}
             className="flex w-full items-center gap-3 p-3.5 text-left"
           >
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-lg">
@@ -168,7 +183,7 @@ return (
             </span>
 
             <span className="text-[12px] text-white/40">
-              {matchCount}
+              {isLoading ? "…" : hasError ? "—" : matchCount}
             </span>
 
             <svg
@@ -211,76 +226,64 @@ return (
                       </span>
                     </Link>
 
-                    {matches === "loading" && (
+                    {matches === undefined ||
+                      matches === "loading" ? (
                       <p className="pl-5 text-[12px] text-white/35">
                         Loading matches…
                       </p>
-                    )}
-
-                    {matches === "error" && (
+                    ) : matches === "error" ? (
                       <p className="pl-5 text-[12px] text-white/35">
                         Couldn&apos;t load matches.
                       </p>
+                    ) : matches.length === 0 ? (
+                      <p className="pl-5 text-[12px] text-white/35">
+                        No matches on this date.
+                      </p>
+                    ) : (
+                      <div className="flex flex-col gap-1.5 pl-1">
+                        {matches.map((match) => (
+                          <Link
+                            key={match.id}
+                            href={`/match/${match.slug}`}
+                            className="flex items-center gap-2.5 rounded-xl px-2 py-1.5 hover:bg-white/[0.05]"
+                          >
+                            <span className="w-11 shrink-0 text-[11px] text-white/45">
+                              {match.score ? match.status : match.time}
+                            </span>
+
+                            <span className="flex flex-1 items-center gap-1.5 text-[12.5px] font-semibold text-white/85">
+                              <Crest
+                                short={match.home.short}
+                                color={match.home.color}
+                                size={18}
+                                teamId={match.home.id}
+                                name={match.home.name}
+                              />
+
+                              {match.home.short}
+
+                              <span className="text-white/30">v</span>
+
+                              <Crest
+                                short={match.away.short}
+                                color={match.away.color}
+                                size={18}
+                                teamId={match.away.id}
+                                name={match.away.name}
+                              />
+
+                              {match.away.short}
+                            </span>
+
+                            {match.score && (
+                              <span className="tnum shrink-0 text-[12.5px] font-bold">
+                                {match.score.home}-{match.score.away}
+                              </span>
+                            )}
+                          </Link>
+                        ))}
+                      </div>
                     )}
-
-                    {Array.isArray(matches) &&
-                      matches.length === 0 && (
-                        <p className="pl-5 text-[12px] text-white/35">
-                          No matches on this date.
-                        </p>
-                      )}
-
-                    {Array.isArray(matches) &&
-                      matches.length > 0 && (
-                        <div className="flex flex-col gap-1.5 pl-1">
-                          {matches.map((match) => (
-                            <Link
-                              key={match.id}
-                              href={`/match/${match.slug}`}
-                              className="flex items-center gap-2.5 rounded-xl px-2 py-1.5 hover:bg-white/[0.05]"
-                            >
-                              <span className="w-11 shrink-0 text-[11px] text-white/45">
-                                {match.score
-                                  ? match.status
-                                  : match.time}
-                              </span>
-
-                              <span className="flex flex-1 items-center gap-1.5 text-[12.5px] font-semibold text-white/85">
-                                <Crest
-                                  short={match.home.short}
-                                  color={match.home.color}
-                                  size={18}
-                                  teamId={match.home.id}
-                                  name={match.home.name}
-                                />
-
-                                {match.home.short}
-
-                                <span className="text-white/30">
-                                  v
-                                </span>
-
-                                <Crest
-                                  short={match.away.short}
-                                  color={match.away.color}
-                                  size={18}
-                                  teamId={match.away.id}
-                                  name={match.away.name}
-                                />
-
-                                {match.away.short}
-                              </span>
-
-                              {match.score && (
-                                <span className="tnum shrink-0 text-[12.5px] font-bold">
-                                  {match.score.home}-
-                                  {match.score.away}
-                                </span>
-                              )}
-                            </Link>
-                          ))}
-                        </div>
-                      )}
                   </div>
                 );
               })}
