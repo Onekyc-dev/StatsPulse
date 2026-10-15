@@ -131,10 +131,15 @@ function buildMatch(f: FixtureRow, ctx: Ctx, now: Date, leagueName: string): Mat
   };
 }
 
-async function loadContext(fixtureIds: number[], withRaw: boolean, leagueId: number): Promise<Ctx> {
+async function loadContext(fixtureIds: number[], withRaw: boolean, leagueId: number, teamIds: number[]): Promise<Ctx> {
   const idList = `in.(${fixtureIds.join(",") || "0"})`;
   const [teams, finished, absences, preds, lineups, provider] = await Promise.all([
-    dbSelect<TeamRow>("teams", { select: "id,name,short,color", limit: "500" }, { revalidate: CACHE }),
+    // Only fetch the clubs actually involved in these fixtures, not a flat, capped
+    // batch across every league (that silently dropped teams once the shared
+    // teams table grew past the old fixed limit).
+    teamIds.length
+      ? dbSelect<TeamRow>("teams", { select: "id,name,short,color", id: `in.(${teamIds.join(",")})` }, { revalidate: CACHE })
+      : Promise.resolve([] as TeamRow[]),
     dbSelectAll<FixtureRow>(
       "fixtures",
       { select: FIXTURE_COLS, league_id: `eq.${leagueId}`, status: "eq.finished", kickoff: `gte.${HISTORY_FROM}`, order: "kickoff.asc,id.asc" },
@@ -179,7 +184,8 @@ export async function loadMatches(
       { select: FIXTURE_COLS, league_id: `eq.${leagueId}`, kickoff: [`gte.${from}`, `lt.${to}`], order: "kickoff.asc", limit: "200" },
       { revalidate: CACHE }
     );
-    const ctx = await loadContext(rows.map((r) => r.id), false, leagueId);
+    const teamIds = Array.from(new Set(rows.flatMap((r) => [r.home_team_id, r.away_team_id])));
+    const ctx = await loadContext(rows.map((r) => r.id), false, leagueId, teamIds);
     return { matches: rows.map((r) => buildMatch(r, ctx, now, leagueName)), error: null };
   } catch (e) {
     return { matches: [], error: e instanceof Error ? e.message : String(e) };
@@ -194,7 +200,8 @@ export async function loadMatch(
   try {
     const rows = await dbSelect<FixtureRow>("fixtures", { select: FIXTURE_COLS, id: `eq.${id}` }, { revalidate: CACHE });
     if (rows.length === 0) return { match: null, h2h: null, error: null };
-    const ctx = await loadContext([id], true, leagueId);
+    const teamIds = [rows[0].home_team_id, rows[0].away_team_id];
+    const ctx = await loadContext([id], true, leagueId, teamIds);
     const match = buildMatch(rows[0], ctx, new Date(), leagueName);
     await addLineupIntelligence(match, rows[0], ctx);
     match.timeline = await loadTimeline(match);
