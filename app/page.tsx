@@ -1,8 +1,7 @@
 
 import { Shield, ShieldAlert, Sparkles } from "lucide-react";
 import { DataNotice } from "@/components/DataNotice";
-import { LeaguesHub } from "@/components/LeaguesHub";
-import { HomeMatchBrowser } from "@/components/HomeMatchBrowser";
+import { HomeContent } from "@/components/HomeContent";
 import { loadMatches } from "@/lib/db";
 import { loadEnabledLeagues } from "@/lib/leagues";
 
@@ -48,11 +47,12 @@ export default async function HomePage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-9 px-4 py-6 sm:px-6 lg:px-8">
-      <HomeMatchBrowser matches={matches} />
+      <HomeContent
+  matches={matches}
+  leagues={leagues}
+/>
 
-      {matches.length === 0 && <DataNotice error={error} />}
-
-      {leagues.length > 0 && <LeaguesHub leagues={leagues} />}
+{matches.length === 0 && <DataNotice error={error} />}
 
       <section>
         <h2 className="section-title mb-3">
