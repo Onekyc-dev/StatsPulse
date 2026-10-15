@@ -145,12 +145,17 @@ function MatchRow({ match }: { match: CountryMatch }) {
   );
 }
 
+type HomeMatchBrowserProps = {
+  matches: CountryMatch[];
+  selectedDate: string;
+  onDateChange: (date: string) => void;
+};
+
 export function HomeMatchBrowser({
   matches,
-}: {
-  matches: CountryMatch[];
-}) {
-  const [selectedDate, setSelectedDate] = useState(() => {
+  selectedDate,
+  onDateChange,
+}: HomeMatchBrowserProps) {
   const today = new Date();
   const year = today.getFullYear();
   const month = String(today.getMonth() + 1).padStart(2, "0");
@@ -228,7 +233,7 @@ export function HomeMatchBrowser({
     <section className="min-w-0 space-y-4">
       <DateStrip
         selectedDate={selectedDate}
-        onDateChange={setSelectedDate}
+        onDateChange={onDateChange}
       />
 
       {groupedByCountry.length === 0 ? (
