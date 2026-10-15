@@ -42,8 +42,8 @@ selectedDate: string;
 };
 
 export function LeaguesHub({
-leagues,
-selectedDate,
+  leagues,
+  selectedDate = new Date().toLocaleDateString("en-CA"),
 }: LeaguesHubProps) {
 const [openCountry, setOpenCountry] = useState<string | null>(null);
 
