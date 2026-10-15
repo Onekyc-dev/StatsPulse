@@ -150,8 +150,14 @@ export function HomeMatchBrowser({
 }: {
   matches: CountryMatch[];
 }) {
-  const [selectedDate, setSelectedDate] = useState(() => getLocalDateKey(new Date()));
+  const [selectedDate, setSelectedDate] = useState(() => {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
 
+  return `${year}-${month}-${day}`;
+});
   const selectedMatches = useMemo(() => {
     return matches.filter(
       (match) => getLocalDateKey(match.kickoff) === selectedDate
