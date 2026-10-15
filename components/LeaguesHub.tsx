@@ -34,7 +34,7 @@ type LeagueMatchData = Record<
 number,
 DayMatch[] | "loading" | "error"
 
-«;»
+>;
 
 type LeaguesHubProps = {
 leagues: League[];
