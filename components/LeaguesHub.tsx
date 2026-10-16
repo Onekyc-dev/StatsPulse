@@ -240,49 +240,65 @@ return (
                         No matches on this date.
                       </p>
                     ) : (
-                      <div className="flex flex-col gap-1.5 pl-1">
-                        {matches.map((match) => (
-                          <Link
-                            key={match.id}
-                            href={`/match/${match.slug}`}
-                            className="flex items-center gap-2.5 rounded-xl px-2 py-1.5 hover:bg-white/[0.05]"
-                          >
-                            <span className="w-11 shrink-0 text-[11px] text-white/45">
-                              {match.score ? match.status : match.time}
-                            </span>
+                      
+<div className="grid gap-3">
+  {matches.map((match) => (
+    <Link
+      key={match.id}
+      href={`/match/${match.slug}`}
+      className="card block overflow-hidden p-4 transition-colors hover:border-pulse-500/40 active:bg-ink-700"
+    >
+      <div className="flex items-center justify-between text-[11px] text-white/45">
+        <span>
+          {match.status === "LIVE"
+            ? "Live"
+            : match.score && match.status === "FT"
+              ? "Full time"
+              : match.score
+                ? match.status
+                : match.time}
+        </span>
+      </div>
 
-                            <span className="flex flex-1 items-center gap-1.5 text-[12.5px] font-semibold text-white/85">
-                              <Crest
-                                short={match.home.short}
-                                color={match.home.color}
-                                size={18}
-                                teamId={match.home.id}
-                                name={match.home.name}
-                              />
+      <div className="mt-4 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+        <div className="flex min-w-0 flex-col items-center gap-2 text-center">
+          <Crest
+            short={match.home.short}
+            color={match.home.color}
+            size={46}
+            teamId={match.home.id}
+            name={match.home.name}
+          />
+          <div className="w-full truncate text-[13px] font-semibold leading-tight">
+            {match.home.name}
+          </div>
+        </div>
 
-                              {match.home.short}
+        <div className="px-2 text-center">
+          <div className="font-display text-[26px] font-extrabold leading-none tnum">
+            {match.score
+              ? `${match.score.home}–${match.score.away}`
+              : match.time}
+          </div>
+        </div>
 
-                              <span className="text-white/30">v</span>
+        <div className="flex min-w-0 flex-col items-center gap-2 text-center">
+          <Crest
+            short={match.away.short}
+            color={match.away.color}
+            size={46}
+            teamId={match.away.id}
+            name={match.away.name}
+          />
+          <div className="w-full truncate text-[13px] font-semibold leading-tight">
+            {match.away.name}
+          </div>
+        </div>
+      </div>
+    </Link>
+  ))}
+</div>
 
-                              <Crest
-                                short={match.away.short}
-                                color={match.away.color}
-                                size={18}
-                                teamId={match.away.id}
-                                name={match.away.name}
-                              />
-
-                              {match.away.short}
-                            </span>
-
-                            {match.score && (
-                              <span className="tnum shrink-0 text-[12.5px] font-bold">
-                                {match.score.home}-{match.score.away}
-                              </span>
-                            )}
-                          </Link>
-                        ))}
-                      </div>
                     )}
                   </div>
                 );
